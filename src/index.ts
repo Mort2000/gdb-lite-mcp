@@ -17,6 +17,35 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
+const maxOutputBytesSchema = z
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .describe("Optional maximum returned output size in bytes. Keeps the tail with a truncation marker.");
+
+const executionStateOutputSchema = {
+  output: z.string(),
+  completion_reason: z.enum(["completed", "timeout", "exited"]),
+  saw_prompt: z.boolean(),
+  timed_out: z.boolean(),
+  session_exited: z.boolean(),
+  at_prompt: z.boolean(),
+  command_pending: z.boolean(),
+  needs_interrupt: z.boolean(),
+  bytes: z.number().int().nonnegative(),
+  duration_ms: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  omitted_bytes: z.number().int().nonnegative(),
+  internal_buffer_bytes: z.number().int().nonnegative(),
+};
+
+const sessionExecutionInputSchema = {
+  session_id: z.string(),
+  timeout: z.number().min(0).default(5.0),
+  max_output_bytes: maxOutputBytesSchema,
+};
+
 server.registerResource(
   "debug-guide",
   debugGuideUri,
@@ -53,17 +82,21 @@ server.registerTool(
       core_path: z
         .string()
         .optional()
-        .describe("Optional core file path. Relative paths are resolved from work_dir."),
+        .describe(
+          "Optional core file path. Relative paths are resolved from work_dir. Mutually exclusive with attach_pid and remote_target.",
+        ),
       attach_pid: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Optional local process id to attach to."),
+        .describe("Optional local process id to attach to. Mutually exclusive with core_path and remote_target."),
       remote_target: z
         .string()
         .optional()
-        .describe('Optional native GDB remote target, for example "localhost:1234".'),
+        .describe(
+          'Optional native GDB remote target, for example "localhost:1234". Mutually exclusive with core_path and attach_pid.',
+        ),
       gdb_args: z
         .array(z.string())
         .default([])
@@ -103,33 +136,12 @@ server.registerTool(
   {
     title: "Execute gdb command",
     description:
-      "Send a gdb command and return all output since the previous gdb_exec call. Empty command only polls output.",
+      "Send a gdb command and return all output since the previous gdb_exec or gdb_interrupt call. Empty command only polls output.",
     inputSchema: {
-      session_id: z.string(),
+      ...sessionExecutionInputSchema,
       command: z.string().default(""),
-      timeout: z.number().min(0).default(5.0),
-      max_output_bytes: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Optional maximum returned output size in bytes. Keeps the tail with a truncation marker."),
     },
-    outputSchema: {
-      output: z.string(),
-      completion_reason: z.enum(["prompt", "sentinel", "timeout", "exited"]),
-      saw_prompt: z.boolean(),
-      timed_out: z.boolean(),
-      session_exited: z.boolean(),
-      at_prompt: z.boolean(),
-      command_pending: z.boolean(),
-      needs_interrupt: z.boolean(),
-      bytes: z.number().int().nonnegative(),
-      duration_ms: z.number().int().nonnegative(),
-      truncated: z.boolean(),
-      omitted_bytes: z.number().int().nonnegative(),
-      internal_buffer_bytes: z.number().int().nonnegative(),
-    },
+    outputSchema: executionStateOutputSchema,
   },
   async ({ session_id, command, timeout, max_output_bytes }) => {
     const result = await controller.exec(session_id, command, timeout, max_output_bytes);
@@ -151,31 +163,10 @@ server.registerTool(
     title: "Interrupt gdb",
     description:
       "Send SIGINT to the gdb session/debuggee, wait for the GDB prompt, and return incremental output.",
-    inputSchema: {
-      session_id: z.string(),
-      timeout: z.number().min(0).default(5.0),
-      max_output_bytes: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Optional maximum returned output size in bytes. Keeps the tail with a truncation marker."),
-    },
+    inputSchema: sessionExecutionInputSchema,
     outputSchema: {
-      output: z.string(),
+      ...executionStateOutputSchema,
       interrupted: z.boolean(),
-      completion_reason: z.enum(["prompt", "sentinel", "timeout", "exited"]),
-      saw_prompt: z.boolean(),
-      timed_out: z.boolean(),
-      session_exited: z.boolean(),
-      at_prompt: z.boolean(),
-      command_pending: z.boolean(),
-      needs_interrupt: z.boolean(),
-      bytes: z.number().int().nonnegative(),
-      duration_ms: z.number().int().nonnegative(),
-      truncated: z.boolean(),
-      omitted_bytes: z.number().int().nonnegative(),
-      internal_buffer_bytes: z.number().int().nonnegative(),
     },
   },
   async ({ session_id, timeout, max_output_bytes }) => {
@@ -202,19 +193,21 @@ server.registerTool(
     },
     outputSchema: {
       closed: z.boolean(),
+      existed: z.boolean(),
     },
   },
   async ({ session_id }) => {
-    controller.close(session_id);
+    const existed = controller.close(session_id);
     return {
       content: [
         {
           type: "text",
-          text: "closed",
+          text: existed ? "closed" : "not found",
         },
       ],
       structuredContent: {
-        closed: true,
+        closed: existed,
+        existed,
       },
     };
   },

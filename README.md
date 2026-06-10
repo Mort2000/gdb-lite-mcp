@@ -56,9 +56,10 @@ The server registers these MCP tools:
 | `gdb_spawn` | Start a GDB session for a local program, core file, attached PID, or remote target. |
 | `gdb_exec` | Send a native GDB command, or poll output with an empty command. |
 | `gdb_interrupt` | Send SIGINT and wait for GDB to return to a prompt. |
-| `gdb_close` | Terminate and remove a GDB session. |
+| `gdb_close` | Terminate and remove a GDB session, returning whether the session existed. |
 
-`gdb_exec` and `gdb_interrupt` return structured state such as `at_prompt`,
+`gdb_exec` and `gdb_interrupt` return structured state such as
+`completion_reason` (`completed`, `timeout`, or `exited`), `at_prompt`,
 `command_pending`, `needs_interrupt`, `timed_out`, `truncated`, and byte counts.
 Use this metadata to avoid stacking commands behind a still-running inferior.
 

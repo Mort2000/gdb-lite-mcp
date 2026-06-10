@@ -5,16 +5,17 @@ This guide is for agents using the GDB Lite MCP tools without a dedicated Skill.
 The MCP tools are intentionally minimal:
 
 - `gdb_spawn(prog_path?, work_dir, environments={}, core_path?, attach_pid?, remote_target?, gdb_args=[]) -> session_id`
-- `gdb_exec(session_id, command="", timeout=5.0) -> output`
-- `gdb_interrupt(session_id, timeout=5.0) -> output`
-- `gdb_close(session_id)`
+- `gdb_exec(session_id, command="", timeout=5.0) -> output + state`
+- `gdb_interrupt(session_id, timeout=5.0) -> output + state`
+- `gdb_close(session_id) -> { closed, existed }`
 
 Treat `gdb_exec` as direct access to GDB. Prefer native GDB commands, breakpoint command lists, watchpoints, conditional breakpoints, and GDB Python over custom wrapper patterns.
 
 `gdb_exec` and `gdb_interrupt` return structured metadata in addition to text output:
 
+- `completion_reason`: `completed`, `timeout`, or `exited`.
 - `at_prompt`: GDB is ready for the next command.
-- `command_pending`: a previous command has not reached a prompt or sentinel yet.
+- `command_pending`: a previous command has not completed yet.
 - `needs_interrupt`: the session is not at a prompt and should usually be interrupted before sending more commands.
 
 When `timed_out=true` and `needs_interrupt=true`, avoid stacking more commands behind the running inferior. Use `gdb_interrupt`, collect a backtrace, then decide whether to continue, kill, or restart with narrower probes.

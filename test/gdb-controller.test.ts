@@ -117,7 +117,7 @@ const sessionId = await controller.spawn({
 
 try {
   const initial = await controller.exec(sessionId, "", 2);
-  assert.equal(initial.completion_reason, "prompt");
+  assert.equal(initial.completion_reason, "completed");
   assert.equal(initial.saw_prompt, true);
   assert.equal(initial.at_prompt, true);
   assert.equal(initial.command_pending, false);
@@ -125,7 +125,7 @@ try {
   assert.equal(initial.output.includes("__GDB_LITE_PROMPT_"), false);
 
   const multiCommand = await controller.exec(sessionId, "print 1\nprint 2\n", 2);
-  assert.equal(multiCommand.completion_reason, "sentinel");
+  assert.equal(multiCommand.completion_reason, "completed");
   assert.match(multiCommand.output, /= 1/);
   assert.match(multiCommand.output, /= 2/);
   assert.equal(multiCommand.output.includes("__GDB_LITE_DONE_"), false);
@@ -143,10 +143,10 @@ try {
   assert.equal(delayedPoll.output.includes("__GDB_LITE_DONE_"), false);
 
   const customPrompt = await controller.exec(sessionId, "set prompt CUSTOM_PROMPT> ", 2);
-  assert.equal(customPrompt.completion_reason, "sentinel");
+  assert.equal(customPrompt.completion_reason, "completed");
 
   const afterCustomPrompt = await controller.exec(sessionId, "print 3", 2);
-  assert.equal(afterCustomPrompt.completion_reason, "sentinel");
+  assert.equal(afterCustomPrompt.completion_reason, "completed");
   assert.match(afterCustomPrompt.output, /= 3/);
 
   const emptyStartedAt = Date.now();
@@ -168,7 +168,7 @@ try {
     "commands 1\nsilent\nprintf \"hit weighted_sum limit=%d\\n\", limit\ncontinue\nend",
     2,
   );
-  assert.equal(trace.completion_reason, "sentinel");
+  assert.equal(trace.completion_reason, "completed");
 
   const rerun = await controller.exec(sessionId, "run", 5);
   assert.match(rerun.output, /hit weighted_sum limit=7/);
@@ -187,8 +187,8 @@ try {
   assert.ok(truncated.bytes > 256);
   assert.match(truncated.output, /bytes omitted from start/);
 } finally {
-  controller.close(sessionId);
-  controller.close(sessionId);
+  assert.equal(controller.close(sessionId), true);
+  assert.equal(controller.close(sessionId), false);
 }
 
 const interruptSessionId = await controller.spawn({

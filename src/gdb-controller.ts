@@ -18,7 +18,7 @@ export type SpawnArgs = {
 
 export type GdbExecResult = {
   output: string;
-  completion_reason: "prompt" | "sentinel" | "timeout" | "exited";
+  completion_reason: "completed" | "timeout" | "exited";
   saw_prompt: boolean;
   timed_out: boolean;
   session_exited: boolean;
@@ -45,7 +45,7 @@ type Waiter = {
 };
 
 type WaitResult = {
-  reason: GdbExecResult["completion_reason"];
+  reason: "prompt" | "sentinel" | "timeout" | "exited";
 };
 
 type GdbSession = {
@@ -197,10 +197,10 @@ export class GdbController {
     return task;
   }
 
-  close(sessionId: string): void {
+  close(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      return;
+      return false;
     }
     this.sessions.delete(sessionId);
     session.exited = true;
@@ -210,11 +210,12 @@ export class GdbController {
     this.resolveAllWaiters(session, { reason: "exited" });
 
     if (!isChildAlive(session.child)) {
-      return;
+      return true;
     }
 
     session.atPrompt = false;
     this.terminateProcess(session);
+    return true;
   }
 
   closeAll(): void {
@@ -319,6 +320,8 @@ export class GdbController {
     const omittedBytes = rawSlice.omittedBytes + limitedOutput.omittedBytes;
     const reason = waitResult.reason;
     const sawPrompt = reason === "prompt" || reason === "sentinel";
+    const completionReason: GdbExecResult["completion_reason"] =
+      reason === "timeout" ? "timeout" : reason === "exited" ? "exited" : "completed";
     if (reason === "prompt" || reason === "sentinel") {
       session.atPrompt = true;
       session.commandPending = false;
@@ -329,7 +332,7 @@ export class GdbController {
 
     return {
       output,
-      completion_reason: reason,
+      completion_reason: completionReason,
       saw_prompt: sawPrompt,
       timed_out: reason === "timeout",
       session_exited: session.exited,

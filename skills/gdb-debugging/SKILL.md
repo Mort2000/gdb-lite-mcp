@@ -21,7 +21,7 @@ set confirm off
 
 3. Prefer one discriminating probe over many tiny probes. A good first batch usually includes `break`, `run`, `bt`, `frame`, `info args`, `info locals`, and labeled `print` or `printf` expressions.
 4. For repeated observations, use GDB-native automation: `commands ... end`, conditional breakpoints, watchpoints, or short `python ... end` blocks.
-5. Keep a compact hypothesis/evidence table mentally or in notes. Stop probing when the evidence identifies the earliest wrong state transition; do not add disassembly or step-by-step confirmation unless source and runtime evidence conflict.
+5. Keep a compact hypothesis/evidence table mentally or in notes. Stop probing when the evidence identifies the earliest wrong state transition, or when a complete trace proves the expected value or fixture is inconsistent with runtime inputs.
 6. Close the GDB session before finishing.
 
 ## Start Modes
@@ -36,6 +36,24 @@ set confirm off
 - Batch related commands in one `gdb_exec` call.
 - Avoid human-style repeated `next`/`print` calls unless narrowing one transition.
 - Print labels with values: `printf "i=%d total=%d\n", i, total`.
+- For loop traces, prefer passive before/after breakpoints over `next` or `step` inside breakpoint command lists:
+
+```gdb
+break file.c:UPDATE_LINE
+commands
+silent
+printf "before i=%d state=%d input=%d\n", i, state, input[i]
+continue
+end
+break file.c:AFTER_UPDATE_LINE
+commands
+silent
+printf "after i=%d state=%d\n", i, state
+continue
+end
+run
+```
+
 - Limit output. If a trace is large, rerun with a conditional breakpoint or narrower range.
 - Treat `timed_out && needs_interrupt` as "do not stack more commands." Use `gdb_interrupt`, then collect `bt`, `thread apply all bt`, and locals.
 - Treat `at_prompt=false` and `command_pending=true` as a session-control issue before it is a debugging hypothesis.
