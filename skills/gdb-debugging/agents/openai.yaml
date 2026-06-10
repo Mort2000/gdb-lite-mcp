@@ -1,0 +1,4 @@
+interface:
+  display_name: "GDB Debugging"
+  short_description: "Debug native programs efficiently with GDB."
+  default_prompt: "Use GDB through the available MCP or shell tools to localize the bug with low interaction count and concise evidence."
