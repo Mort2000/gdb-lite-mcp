@@ -1,7 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, stat } from "node:fs/promises";
 import { constants } from "node:fs";
+import { access, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 export type EnvironmentMap = Record<string, string>;
@@ -36,21 +37,29 @@ export type GdbInterruptResult = GdbExecResult & {
   interrupted: boolean;
 };
 
+type CompletionReason = "prompt" | "sentinel" | "token" | "timeout" | "exited";
+
+type WaitResult = {
+  reason: CompletionReason;
+};
+
 type Waiter = {
   fromOffset: number;
   sentinel?: string;
+  token?: number;
   resolve: (result: WaitResult) => void;
-  promptTimer?: ReturnType<typeof setTimeout>;
+  settleTimer?: ReturnType<typeof setTimeout>;
   timeoutTimer?: ReturnType<typeof setTimeout>;
 };
 
-type WaitResult = {
-  reason: "prompt" | "sentinel" | "timeout" | "exited";
+type ActiveCommand = {
+  token: number;
+  sentinel: string;
+  scriptPath: string;
 };
 
 type GdbSession = {
   id: string;
-  prompt: string;
   child: ChildProcessWithoutNullStreams;
   output: string;
   bufferStart: number;
@@ -60,16 +69,22 @@ type GdbSession = {
   queue: Promise<void>;
   atPrompt: boolean;
   commandPending: boolean;
+  targetRunning: boolean;
   exited: boolean;
   exitSummary?: string;
+  miBuffer: string;
+  nextToken: number;
+  tokenResults: Map<number, string>;
+  activeCommand?: ActiveCommand;
+  tempFiles: Set<string>;
 };
 
-const PROMPT_PREFIX = "__GDB_LITE_PROMPT_";
 const DONE_PREFIX = "__GDB_LITE_DONE_";
 const PROMPT_SETTLE_MS = 20;
 const MAX_INTERNAL_BUFFER_CHARS = 4 * 1024 * 1024;
 const MAX_TIMEOUT_SECONDS = 600;
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const TERMINAL_TOKEN_RESULTS = new Set(["done", "connected", "error", "exit"]);
 
 export class GdbController {
   private readonly sessions = new Map<string, GdbSession>();
@@ -101,9 +116,7 @@ export class GdbController {
     }
 
     const sessionId = randomUUID();
-    const prompt = `${PROMPT_PREFIX}${sessionId.replaceAll("-", "")}__`;
     const child = spawn(this.gdbPath, buildGdbArgs({
-      prompt,
       progPath,
       corePath,
       attachPid: args.attach_pid,
@@ -122,7 +135,6 @@ export class GdbController {
 
     const session: GdbSession = {
       id: sessionId,
-      prompt,
       child,
       output: "",
       bufferStart: 0,
@@ -132,22 +144,26 @@ export class GdbController {
       queue: Promise.resolve(),
       atPrompt: false,
       commandPending: false,
+      targetRunning: false,
       exited: false,
+      miBuffer: "",
+      nextToken: 1,
+      tokenResults: new Map(),
+      tempFiles: new Set(),
     };
 
-    const append = (chunk: Buffer) => {
+    child.stdout.on("data", (chunk: Buffer) => {
+      this.appendMiData(session, chunk.toString("utf8"));
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
       this.appendOutput(session, chunk.toString("utf8"));
-      this.refreshStateFromOutput(session);
-      this.resolvePromptWaiters(session);
-    };
-
-    child.stdout.on("data", append);
-    child.stderr.on("data", append);
+    });
     child.on("error", (error) => {
       this.appendOutput(session, `[gdb process error] ${error.message}\n`);
       session.exited = true;
       session.atPrompt = false;
       session.commandPending = false;
+      session.targetRunning = false;
       session.exitSummary = `gdb process error: ${error.message}`;
       this.resolveAllWaiters(session, { reason: "exited" });
     });
@@ -155,9 +171,11 @@ export class GdbController {
       session.exited = true;
       session.atPrompt = false;
       session.commandPending = false;
+      session.targetRunning = false;
       session.exitSummary = `gdb exited with code ${code ?? "null"} signal ${signal ?? "null"}`;
       this.appendOutput(session, `[${session.exitSummary}]\n`);
       this.resolveAllWaiters(session, { reason: "exited" });
+      this.cleanupAllTempFiles(session);
     });
 
     this.sessions.set(session.id, session);
@@ -206,14 +224,15 @@ export class GdbController {
     session.exited = true;
     session.atPrompt = false;
     session.commandPending = false;
+    session.targetRunning = false;
     session.exitSummary ??= "gdb session closed";
     this.resolveAllWaiters(session, { reason: "exited" });
+    this.cleanupAllTempFiles(session);
 
     if (!isChildAlive(session.child)) {
       return true;
     }
 
-    session.atPrompt = false;
     this.terminateProcess(session);
     return true;
   }
@@ -248,20 +267,23 @@ export class GdbController {
       return this.finishExec(session, startOffset, { reason: "exited" }, startedAt, maxOutputBytes);
     }
 
-    let sentinel: string | undefined;
-    let waitFrom = startOffset;
     const line = stripTrailingNewlines(command);
+    let waitSentinel = session.activeCommand?.sentinel;
+    let waitToken = session.activeCommand?.token;
 
     if (line !== "") {
-      sentinel = `${DONE_PREFIX}${randomUUID().replaceAll("-", "")}__`;
-      session.pendingSentinels.add(sentinel);
-      waitFrom = bufferEnd(session);
-      session.atPrompt = false;
-      session.commandPending = true;
-      session.child.stdin.write(`${line}\nprintf "\\n${sentinel}\\n"\n`);
+      if (session.commandPending || session.targetRunning) {
+        throw new Error(
+          "gdb session has a pending command or running target; poll with an empty command or call gdb_interrupt before sending another command",
+        );
+      }
+
+      const activeCommand = await this.startConsoleScript(session, line);
+      waitSentinel = activeCommand.sentinel;
+      waitToken = activeCommand.token;
     }
 
-    const waitResult = await this.waitForPromptOrTimeout(session, waitFrom, timeoutSeconds, sentinel);
+    const waitResult = await this.waitForCompletion(session, startOffset, timeoutSeconds, waitSentinel, waitToken);
     return this.finishExec(session, startOffset, waitResult, startedAt, maxOutputBytes);
   }
 
@@ -283,23 +305,48 @@ export class GdbController {
       };
     }
 
-    if (session.atPrompt && !session.commandPending) {
+    if (session.atPrompt && !session.commandPending && !session.targetRunning) {
       return {
         ...this.finishExec(session, startOffset, { reason: "prompt" }, startedAt, maxOutputBytes),
         interrupted: false,
       };
     }
 
-    const waitFrom = bufferEnd(session);
+    const waitSentinel = session.activeCommand?.sentinel;
+    const waitToken = session.activeCommand?.token;
     session.atPrompt = false;
     session.commandPending = true;
-    const interrupted = signalProcessGroup(session.child, "SIGINT");
+    const interrupted = this.sendInterrupt(session);
 
-    const waitResult = await this.waitForPromptOrTimeout(session, waitFrom, timeoutSeconds);
+    const waitResult = await this.waitForCompletion(session, startOffset, timeoutSeconds, waitSentinel, waitToken);
     return {
       ...this.finishExec(session, startOffset, waitResult, startedAt, maxOutputBytes),
       interrupted,
     };
+  }
+
+  private async startConsoleScript(session: GdbSession, command: string): Promise<ActiveCommand> {
+    const token = session.nextToken++;
+    const sentinel = `${DONE_PREFIX}${randomUUID().replaceAll("-", "")}__`;
+    const scriptPath = await this.writeCommandScript(session, `${command}\nprintf "\\n${sentinel}\\n"\n`);
+    const sourceCommand = buildExecuteScriptCommand(scriptPath);
+
+    session.activeCommand = { token, sentinel, scriptPath };
+    session.pendingSentinels.add(sentinel);
+    session.tokenResults.delete(token);
+    session.atPrompt = false;
+    session.commandPending = true;
+    session.targetRunning = false;
+    session.child.stdin.write(`${token}-interpreter-exec console ${quoteMiString(sourceCommand)}\n`);
+    return session.activeCommand;
+  }
+
+  private async writeCommandScript(session: GdbSession, contents: string): Promise<string> {
+    const dir = await mkdtemp(path.join(commandScriptTempRoot(), "gdb-lite-mcp-"));
+    const filePath = path.join(dir, `${session.id}-${randomUUID()}.gdb`);
+    await writeFile(filePath, contents, { mode: 0o600 });
+    session.tempFiles.add(filePath);
+    return filePath;
   }
 
   private finishExec(
@@ -316,29 +363,34 @@ export class GdbController {
     session.readOffset = endOffset;
     this.compactConsumedOutput(session);
 
-    const output = limitedOutput.output;
-    const omittedBytes = rawSlice.omittedBytes + limitedOutput.omittedBytes;
     const reason = waitResult.reason;
-    const sawPrompt = reason === "prompt" || reason === "sentinel";
-    const completionReason: GdbExecResult["completion_reason"] =
-      reason === "timeout" ? "timeout" : reason === "exited" ? "exited" : "completed";
-    if (reason === "prompt" || reason === "sentinel") {
-      session.atPrompt = true;
+    if (reason === "sentinel" || reason === "token" || reason === "prompt") {
+      if (reason === "sentinel" || reason === "token") {
+        this.finishActiveCommand(session);
+      }
       session.commandPending = false;
+      session.atPrompt = !session.exited && !session.targetRunning;
     } else if (reason === "exited") {
       session.atPrompt = false;
       session.commandPending = false;
+      session.targetRunning = false;
+      this.finishActiveCommand(session);
     }
+
+    const output = limitedOutput.output;
+    const omittedBytes = rawSlice.omittedBytes + limitedOutput.omittedBytes;
+    const completionReason: GdbExecResult["completion_reason"] =
+      reason === "timeout" ? "timeout" : reason === "exited" ? "exited" : "completed";
 
     return {
       output,
       completion_reason: completionReason,
-      saw_prompt: sawPrompt,
+      saw_prompt: reason === "prompt" || reason === "sentinel" || reason === "token",
       timed_out: reason === "timeout",
       session_exited: session.exited,
       at_prompt: !session.exited && session.atPrompt,
       command_pending: !session.exited && session.commandPending,
-      needs_interrupt: !session.exited && session.commandPending && !session.atPrompt,
+      needs_interrupt: !session.exited && (session.commandPending || session.targetRunning) && !session.atPrompt,
       bytes: Buffer.byteLength(output, "utf8"),
       duration_ms: Date.now() - startedAt,
       truncated: omittedBytes > 0,
@@ -347,13 +399,14 @@ export class GdbController {
     };
   }
 
-  private waitForPromptOrTimeout(
+  private waitForCompletion(
     session: GdbSession,
     fromOffset: number,
     timeoutSeconds: number,
     sentinel?: string,
+    token?: number,
   ): Promise<WaitResult> {
-    const immediate = getCompletionResult(session, fromOffset, sentinel);
+    const immediate = getCompletionResult(session, fromOffset, sentinel, token);
     if (immediate) {
       return Promise.resolve(immediate);
     }
@@ -363,9 +416,10 @@ export class GdbController {
       const waiter: Waiter = {
         fromOffset,
         sentinel,
+        token,
         resolve: (result) => {
-          if (waiter.promptTimer) {
-            clearTimeout(waiter.promptTimer);
+          if (waiter.settleTimer) {
+            clearTimeout(waiter.settleTimer);
           }
           if (waiter.timeoutTimer) {
             clearTimeout(waiter.timeoutTimer);
@@ -376,13 +430,13 @@ export class GdbController {
       };
       waiter.timeoutTimer = setTimeout(() => waiter.resolve({ reason: "timeout" }), timeoutMs);
       session.waiters.add(waiter);
-      this.maybeResolvePromptWaiter(session, waiter);
+      this.maybeResolveWaiter(session, waiter);
     });
   }
 
-  private resolvePromptWaiters(session: GdbSession): void {
+  private resolveWaiters(session: GdbSession): void {
     for (const waiter of Array.from(session.waiters)) {
-      this.maybeResolvePromptWaiter(session, waiter);
+      this.maybeResolveWaiter(session, waiter);
     }
   }
 
@@ -392,13 +446,13 @@ export class GdbController {
     }
   }
 
-  private maybeResolvePromptWaiter(session: GdbSession, waiter: Waiter): void {
-    if (waiter.promptTimer) {
-      clearTimeout(waiter.promptTimer);
-      waiter.promptTimer = undefined;
+  private maybeResolveWaiter(session: GdbSession, waiter: Waiter): void {
+    if (waiter.settleTimer) {
+      clearTimeout(waiter.settleTimer);
+      waiter.settleTimer = undefined;
     }
 
-    const result = getCompletionResult(session, waiter.fromOffset, waiter.sentinel);
+    const result = getCompletionResult(session, waiter.fromOffset, waiter.sentinel, waiter.token);
     if (!result) {
       return;
     }
@@ -408,33 +462,113 @@ export class GdbController {
       return;
     }
 
-    waiter.promptTimer = setTimeout(() => {
-      waiter.promptTimer = undefined;
-      const settledResult = getCompletionResult(session, waiter.fromOffset, waiter.sentinel);
+    waiter.settleTimer = setTimeout(() => {
+      waiter.settleTimer = undefined;
+      const settledResult = getCompletionResult(session, waiter.fromOffset, waiter.sentinel, waiter.token);
       if (settledResult) {
-        session.atPrompt = true;
         waiter.resolve(settledResult);
       }
     }, PROMPT_SETTLE_MS);
   }
 
-  private refreshStateFromOutput(session: GdbSession): void {
-    const ready = hasReadyPromptSince(session, session.bufferStart);
-    session.atPrompt = ready;
-    if (ready || hasAnyPendingSentinelSince(session, session.bufferStart)) {
-      session.commandPending = false;
+  private appendMiData(session: GdbSession, text: string): void {
+    session.miBuffer += text;
+    while (true) {
+      const newline = session.miBuffer.indexOf("\n");
+      if (newline < 0) {
+        return;
+      }
+      const line = session.miBuffer.slice(0, newline).replace(/\r$/u, "");
+      session.miBuffer = session.miBuffer.slice(newline + 1);
+      this.processMiLine(session, line);
     }
+  }
+
+  private processMiLine(session: GdbSession, line: string): void {
+    if (line === "(gdb) " || line === "(gdb)") {
+      if (!session.commandPending && !session.targetRunning && !session.exited) {
+        session.atPrompt = true;
+      }
+      this.resolveWaiters(session);
+      return;
+    }
+
+    if (line === "") {
+      this.appendOutput(session, "\n");
+      return;
+    }
+
+    const streamPrefix = line[0];
+    if ((streamPrefix === "~" || streamPrefix === "@" || streamPrefix === "&") && line[1] === "\"") {
+      this.appendOutput(session, decodeMiCString(line.slice(1)));
+      return;
+    }
+
+    const resultMatch = line.match(/^(\d+)\^([A-Za-z-]+)(.*)$/u);
+    if (resultMatch) {
+      this.handleMiResult(session, Number(resultMatch[1]), resultMatch[2]);
+      return;
+    }
+
+    if (line.startsWith("*running")) {
+      session.targetRunning = true;
+      session.atPrompt = false;
+      this.resolveWaiters(session);
+      return;
+    }
+
+    if (line.startsWith("*stopped")) {
+      session.targetRunning = false;
+      if (!session.activeCommand) {
+        session.commandPending = false;
+        session.atPrompt = true;
+      }
+      this.resolveWaiters(session);
+      return;
+    }
+
+    if (line.startsWith("=thread-group-exited")) {
+      session.targetRunning = false;
+      this.resolveWaiters(session);
+      return;
+    }
+
+    if (line.startsWith("=") || line.startsWith("+") || line.startsWith("^")) {
+      return;
+    }
+
+    this.appendOutput(session, `${line}\n`);
+  }
+
+  private handleMiResult(session: GdbSession, token: number, resultClass: string): void {
+    session.tokenResults.set(token, resultClass);
+
+    if (resultClass === "running") {
+      session.targetRunning = true;
+      session.commandPending = true;
+      session.atPrompt = false;
+    } else if (resultClass === "exit") {
+      session.exited = true;
+      session.targetRunning = false;
+      session.commandPending = false;
+      session.atPrompt = false;
+      session.exitSummary = "gdb exited";
+    } else if (TERMINAL_TOKEN_RESULTS.has(resultClass)) {
+      session.commandPending = false;
+      session.atPrompt = !session.exited && !session.targetRunning;
+    }
+
+    this.resolveWaiters(session);
   }
 
   private appendOutput(session: GdbSession, text: string): void {
     session.output += text;
-    if (session.output.length <= MAX_INTERNAL_BUFFER_CHARS) {
-      return;
+    if (session.output.length > MAX_INTERNAL_BUFFER_CHARS) {
+      const dropChars = session.output.length - MAX_INTERNAL_BUFFER_CHARS;
+      session.output = session.output.slice(dropChars);
+      session.bufferStart += dropChars;
     }
-
-    const dropChars = session.output.length - MAX_INTERNAL_BUFFER_CHARS;
-    session.output = session.output.slice(dropChars);
-    session.bufferStart += dropChars;
+    this.resolveWaiters(session);
   }
 
   private compactConsumedOutput(session: GdbSession): void {
@@ -447,12 +581,47 @@ export class GdbController {
     session.bufferStart += dropChars;
   }
 
+  private finishActiveCommand(session: GdbSession): void {
+    const active = session.activeCommand;
+    if (!active) {
+      return;
+    }
+    session.activeCommand = undefined;
+    session.pendingSentinels.delete(active.sentinel);
+    session.tokenResults.delete(active.token);
+    this.cleanupTempFile(session, active.scriptPath);
+  }
+
+  private cleanupTempFile(session: GdbSession, filePath: string): void {
+    session.tempFiles.delete(filePath);
+    void rm(path.dirname(filePath), { force: true, recursive: true }).catch(() => undefined);
+  }
+
+  private cleanupAllTempFiles(session: GdbSession): void {
+    const dirs = new Set(Array.from(session.tempFiles, (filePath) => path.dirname(filePath)));
+    session.tempFiles.clear();
+    for (const dir of dirs) {
+      void rm(dir, { force: true, recursive: true }).catch(() => undefined);
+    }
+  }
+
+  private sendInterrupt(session: GdbSession): boolean {
+    const { child } = session;
+    if (session.targetRunning && session.activeCommand === undefined && child.stdin.writable && !child.stdin.destroyed) {
+      const token = session.nextToken++;
+      child.stdin.write(`${token}-exec-interrupt --all\n`);
+      return true;
+    }
+    return signalProcessGroup(child, "SIGINT");
+  }
+
   private terminateProcess(session: GdbSession): void {
     const { child } = session;
 
     signalProcessGroup(child, "SIGINT");
     if (child.stdin.writable && !child.stdin.destroyed) {
-      child.stdin.write("quit\n");
+      const token = session.nextToken++;
+      child.stdin.write(`${token}-gdb-exit\n`);
       child.stdin.end();
     }
 
@@ -515,6 +684,16 @@ function validateGdbArgs(args: string[]): void {
     if (arg.includes("\0")) {
       throw new Error(`gdb_args[${index}] contains a NUL byte`);
     }
+    if (
+      arg === "-i" ||
+      arg.startsWith("-i=") ||
+      arg === "--interpreter" ||
+      arg.startsWith("--interpreter=") ||
+      arg === "--interp" ||
+      arg.startsWith("--interp=")
+    ) {
+      throw new Error(`gdb_args[${index}] must not override the MI interpreter`);
+    }
   }
 }
 
@@ -560,7 +739,6 @@ function normalizeTimeout(timeoutSeconds: number): number {
 }
 
 function buildGdbArgs(options: {
-  prompt: string;
   progPath?: string;
   corePath?: string;
   attachPid?: number;
@@ -572,6 +750,7 @@ function buildGdbArgs(options: {
     "--nx",
     "--nh",
     ...options.extraArgs,
+    "--interpreter=mi3",
   ];
 
   if (options.progPath) {
@@ -589,8 +768,6 @@ function buildGdbArgs(options: {
     "set pagination off",
     "-ex",
     "set confirm off",
-    "-ex",
-    `set prompt ${options.prompt}`,
   );
 
   if (options.remoteTarget) {
@@ -604,43 +781,34 @@ function getCompletionResult(
   session: GdbSession,
   fromOffset: number,
   sentinel?: string,
+  token?: number,
 ): WaitResult | undefined {
   if (session.exited) {
     return { reason: "exited" };
   }
 
-  if (sentinel) {
-    return hasTextSince(session, sentinel, fromOffset) ? { reason: "sentinel" } : undefined;
+  if (sentinel && hasTextSince(session, sentinel, fromOffset)) {
+    return { reason: "sentinel" };
   }
 
-  if (session.atPrompt || hasReadyPromptSince(session, fromOffset)) {
+  if (token !== undefined && isTerminalTokenResult(session.tokenResults.get(token))) {
+    return { reason: "token" };
+  }
+
+  if (!sentinel && !token && session.atPrompt && !session.commandPending && !session.targetRunning) {
     return { reason: "prompt" };
   }
 
   return undefined;
 }
 
+function isTerminalTokenResult(result: string | undefined): boolean {
+  return result !== undefined && TERMINAL_TOKEN_RESULTS.has(result);
+}
+
 function hasTextSince(session: GdbSession, text: string, fromOffset: number): boolean {
   const index = session.output.lastIndexOf(text);
   return index >= 0 && session.bufferStart + index >= fromOffset;
-}
-
-function hasReadyPromptSince(session: GdbSession, fromOffset: number): boolean {
-  const promptIndex = session.output.lastIndexOf(session.prompt);
-  if (promptIndex < 0 || session.bufferStart + promptIndex < fromOffset) {
-    return false;
-  }
-
-  return session.output.slice(promptIndex + session.prompt.length).trim() === "";
-}
-
-function hasAnyPendingSentinelSince(session: GdbSession, fromOffset: number): boolean {
-  for (const sentinel of session.pendingSentinels) {
-    if (hasTextSince(session, sentinel, fromOffset)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 function bufferEnd(session: GdbSession): number {
@@ -663,7 +831,7 @@ function sliceFrom(session: GdbSession, fromOffset: number): { output: string; o
 }
 
 function stripInfrastructure(output: string, session: GdbSession): string {
-  let stripped = output.split(session.prompt).join("");
+  let stripped = output;
   for (const sentinel of Array.from(session.pendingSentinels)) {
     if (stripped.includes(sentinel)) {
       stripped = stripped.split(sentinel).join("");
@@ -696,4 +864,97 @@ function limitOutput(
       .toString("utf8")}`,
     omittedBytes,
   };
+}
+
+function quoteMiString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function buildExecuteScriptCommand(scriptPath: string): string {
+  return `python import gdb; gdb.execute(open(${quoteMiString(scriptPath)}, encoding="utf-8").read())`;
+}
+
+function commandScriptTempRoot(): string {
+  return tmpdir();
+}
+
+function decodeMiCString(value: string): string {
+  if (!value.startsWith("\"")) {
+    return value;
+  }
+
+  let end = value.length - 1;
+  while (end > 0 && value[end] !== "\"") {
+    end--;
+  }
+  const body = value.slice(1, end);
+  let result = "";
+  let utf8Bytes: number[] = [];
+
+  const flushUtf8Bytes = () => {
+    if (utf8Bytes.length === 0) {
+      return;
+    }
+    result += Buffer.from(utf8Bytes).toString("utf8");
+    utf8Bytes = [];
+  };
+
+  for (let index = 0; index < body.length; index++) {
+    const char = body[index];
+    if (char !== "\\") {
+      flushUtf8Bytes();
+      result += char;
+      continue;
+    }
+
+    const escaped = body[++index];
+    if (escaped === undefined) {
+      flushUtf8Bytes();
+      result += "\\";
+      break;
+    }
+
+    if (escaped >= "0" && escaped <= "7") {
+      let octal = escaped;
+      for (let count = 0; count < 2 && index + 1 < body.length; count++) {
+        const next = body[index + 1];
+        if (next < "0" || next > "7") {
+          break;
+        }
+        octal += next;
+        index++;
+      }
+      utf8Bytes.push(Number.parseInt(octal, 8));
+      continue;
+    }
+
+    flushUtf8Bytes();
+    switch (escaped) {
+      case "n":
+        result += "\n";
+        break;
+      case "r":
+        result += "\r";
+        break;
+      case "t":
+        result += "\t";
+        break;
+      case "b":
+        result += "\b";
+        break;
+      case "f":
+        result += "\f";
+        break;
+      case "\"":
+      case "\\":
+        result += escaped;
+        break;
+      default:
+        result += escaped;
+        break;
+    }
+  }
+
+  flushUtf8Bytes();
+  return result;
 }

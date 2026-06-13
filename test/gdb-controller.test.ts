@@ -1,4 +1,4 @@
-import { access, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile, spawn as spawnChild, type ChildProcess } from "node:child_process";
@@ -110,6 +110,21 @@ async function stopProcess(child: ChildProcess): Promise<void> {
 }
 
 const controller = new GdbController();
+await assert.rejects(
+  () => controller.spawn({
+    work_dir: workDir,
+    gdb_args: ["-i=console"],
+  }),
+  /must not override the MI interpreter/,
+);
+await assert.rejects(
+  () => controller.spawn({
+    work_dir: workDir,
+    gdb_args: ["--interp=console"],
+  }),
+  /must not override the MI interpreter/,
+);
+
 const sessionId = await controller.spawn({
   prog_path: programPath,
   work_dir: workDir,
@@ -135,6 +150,10 @@ try {
   assert.equal(timeoutCommand.at_prompt, false);
   assert.equal(timeoutCommand.command_pending, true);
   assert.equal(timeoutCommand.needs_interrupt, true);
+  await assert.rejects(
+    () => controller.exec(sessionId, "print 999", 1),
+    /pending command/,
+  );
   await delay(300);
   const delayedPoll = await controller.exec(sessionId, "", 1);
   assert.equal(delayedPoll.at_prompt, true);
@@ -148,6 +167,41 @@ try {
   const afterCustomPrompt = await controller.exec(sessionId, "print 3", 2);
   assert.equal(afterCustomPrompt.completion_reason, "completed");
   assert.match(afterCustomPrompt.output, /= 3/);
+
+  const unicodeOutput = await controller.exec(sessionId, 'python\nprint("\\u00e9\\u2713")\nend', 2);
+  assert.match(unicodeOutput.output, /\u00e9\u2713/);
+
+  const oldTmpDir = process.env.TMPDIR;
+  const spacedTmpDir = path.join(workDir, "tmp with spaces");
+  await mkdir(spacedTmpDir);
+  process.env.TMPDIR = spacedTmpDir;
+  try {
+    assert.deepEqual(await readdir(spacedTmpDir), []);
+
+    const tempRootSessionId = await controller.spawn({ work_dir: workDir });
+    try {
+      await controller.exec(tempRootSessionId, "", 2);
+      const spacedTmpTimedOut = await controller.exec(tempRootSessionId, "shell sleep 0.2", 0.01);
+      assert.equal(spacedTmpTimedOut.timed_out, true);
+      const spacedTmpEntries = await readdir(spacedTmpDir);
+      assert.ok(
+        spacedTmpEntries.some((entry) => entry.startsWith("gdb-lite-mcp-")),
+        `expected command script temp directory under ${spacedTmpDir}, found: ${spacedTmpEntries.join(", ")}`,
+      );
+    } finally {
+      controller.close(tempRootSessionId);
+    }
+
+    const spacedTmpCommand = await controller.exec(sessionId, "print 42\nprint 43", 2);
+    assert.match(spacedTmpCommand.output, /= 42/);
+    assert.match(spacedTmpCommand.output, /= 43/);
+  } finally {
+    if (oldTmpDir === undefined) {
+      delete process.env.TMPDIR;
+    } else {
+      process.env.TMPDIR = oldTmpDir;
+    }
+  }
 
   const emptyStartedAt = Date.now();
   const emptyPoll = await controller.exec(sessionId, "", 1);
@@ -199,6 +253,8 @@ const interruptSessionId = await controller.spawn({
 
 try {
   await controller.exec(interruptSessionId, "", 2);
+  const interruptCustomPrompt = await controller.exec(interruptSessionId, "set prompt CUSTOM_PROMPT> ", 2);
+  assert.equal(interruptCustomPrompt.completion_reason, "completed");
   const running = await controller.exec(interruptSessionId, "run", 0.1);
   assert.equal(running.timed_out, true);
   assert.equal(running.at_prompt, false);
@@ -215,6 +271,33 @@ try {
   assert.match(backtrace.output, /main/);
 } finally {
   controller.close(interruptSessionId);
+}
+
+const asyncRunSessionId = await controller.spawn({
+  prog_path: sleeperPath,
+  work_dir: workDir,
+  gdb_args: ["-iex", "set debuginfod enabled off"],
+});
+
+try {
+  await controller.exec(asyncRunSessionId, "", 2);
+  const asyncRunning = await controller.exec(asyncRunSessionId, "run&", 2);
+  assert.equal(asyncRunning.completion_reason, "completed");
+  assert.equal(asyncRunning.at_prompt, false);
+  assert.equal(asyncRunning.command_pending, false);
+  assert.equal(asyncRunning.needs_interrupt, true);
+  await assert.rejects(
+    () => controller.exec(asyncRunSessionId, "bt", 1),
+    /running target/,
+  );
+
+  const asyncInterrupted = await controller.interrupt(asyncRunSessionId, 10);
+  assert.equal(asyncInterrupted.interrupted, true);
+  assert.equal(asyncInterrupted.at_prompt, true);
+  assert.equal(asyncInterrupted.command_pending, false);
+  assert.equal(asyncInterrupted.needs_interrupt, false);
+} finally {
+  controller.close(asyncRunSessionId);
 }
 
 const corePath = path.join(workDir, "sample.core");

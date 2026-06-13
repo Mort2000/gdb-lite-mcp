@@ -17,6 +17,7 @@ core.*
 # Evaluation run artifacts
 eval/opencode-results.md
 eval/results/
+eval/scenarios/
 eval/logs/
 *.log
 

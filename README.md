@@ -12,7 +12,7 @@ targets.
 
 - Node.js 20 or newer
 - GDB available on `PATH`
-- A native compiler such as `gcc` if you want to build the bundled scenarios
+- A native compiler such as `gcc` if you want to build the repository scenarios
 
 ## Install
 
@@ -28,6 +28,10 @@ npm start
 ```
 
 The package also exposes a `gdb-lite-mcp` binary after it has been built.
+
+The npm package is intentionally limited to the runtime server, debug guide,
+and debugging Skill. The `scenarios/` and `eval/` directories are repository
+development assets; clone this repository if you want to run them locally.
 
 ## MCP Configuration
 
@@ -106,8 +110,8 @@ Agents that support repository-local Skills should read
 
 ## Scenarios
 
-The `scenarios` directory contains small native debugging tasks used to evaluate
-the MCP server and Skill.
+The repository `scenarios` directory contains small native debugging tasks used
+to evaluate the MCP server and Skill. It is not included in the npm package.
 
 Build all scenario binaries:
 
@@ -120,7 +124,8 @@ Git.
 
 ## Evaluation
 
-Evaluation prompts and config live under `eval/`.
+Repository-local evaluation prompts and config live under `eval/`. They are not
+included in the npm package.
 
 ```bash
 npm run build
