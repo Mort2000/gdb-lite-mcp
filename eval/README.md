@@ -1,6 +1,6 @@
 # opencode Evaluation
 
-This directory contains prompts for evaluating GDB Lite MCP plus the repository-local `gdb-debugging` Skill.
+This directory contains natural prompts for evaluating GDB Lite MCP with and without the repository-local `gdb-debugging` Skill.
 
 Run from the repository root after building the MCP server and scenarios:
 
@@ -8,18 +8,24 @@ Run from the repository root after building the MCP server and scenarios:
 bash eval/run-scenario.sh wrong-result-ledger
 ```
 
-The repository-root `opencode.json` starts the MCP server from `dist/index.js`, so
-scenario prompts can use `work_dir="."` and root-relative `scenarios/...` paths.
+`eval/run-scenario.sh` creates a temporary workspace for each run, writes an
+`opencode.json` that starts the MCP server from the built repository
+`dist/index.js`, and copies `scenarios/` into that workspace. Normal runs also
+install the repository-local Skill under `.opencode/skills/`, which is
+OpenCode's project-local discovery layout; `no-skill/...` runs do not install
+that project Skill. Repository-local Skill visibility is controlled by the
+generated workspace, not by prompt instructions.
 
 Each prompt asks the agent to:
 
-1. Read `skills/gdb-debugging/SKILL.md`.
-2. Use the relevant Skill reference.
-3. Use the GDB Lite MCP tools to collect runtime evidence.
-4. Avoid source edits.
-5. Report root cause, exact source location, expected versus actual state, and decisive GDB evidence.
+1. Debug the target with GDB Lite MCP.
+2. Avoid source edits.
+3. Report root cause, exact source location, expected versus actual state, and decisive GDB evidence.
 
-No-Skill A/B prompts live under `prompts/no-skill/`. They use the same MCP server and targets but explicitly avoid the repository-local Skill.
+No-Skill A/B runs use the same natural prompt as Skill-visible runs:
+`no-skill/<scenario>` strips the prefix for prompt lookup, then omits the
+project-local `.opencode/skills/gdb-debugging` install from the temporary
+workspace.
 
 Examples:
 

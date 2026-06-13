@@ -48,8 +48,8 @@ Point your MCP client at the built server entry point:
 }
 ```
 
-For repository-local evaluation, the root `opencode.json` starts the same server
-from `dist/index.js`.
+For repository-local evaluation, `eval/run-scenario.sh` writes a temporary
+`opencode.json` that starts the same server from the built `dist/index.js`.
 
 Runtime environment variables:
 
@@ -79,7 +79,7 @@ Calls on the same session are not queued; concurrent `gdb_exec` or
 `gdb_interrupt` requests are rejected.
 
 The server also exposes a `gdb-lite://debug-guide` resource backed by
-`DEBUG_GUIDE.md`.
+`GUIDE.md`.
 
 ## Example Workflow
 

@@ -27,7 +27,7 @@
   },
   "files": [
     "dist",
-    "DEBUG_GUIDE.md",
+    "GUIDE.md",
     "skills"
   ]
 }

@@ -29,4 +29,5 @@ Ask the agent to localize the root cause without editing source. A successful ru
 1. Exact root cause and source location.
 2. Expected invariant versus actual runtime state.
 3. Decisive GDB evidence from the MCP session.
-4. Interaction count or a qualitative note about whether the Skill reduced probing.
+
+For Skill versus no-Skill comparisons, record interaction count and evidence quality outside the prompt so the prompt stays natural in both modes.

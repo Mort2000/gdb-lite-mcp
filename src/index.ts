@@ -9,7 +9,7 @@ import { GdbController, type GdbExecResult, type SessionInfo } from "./gdb-contr
 
 const controller = new GdbController();
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-const debugGuidePath = path.resolve(moduleDir, "../DEBUG_GUIDE.md");
+const debugGuidePath = path.resolve(moduleDir, "../GUIDE.md");
 const debugGuideUri = "gdb-lite://debug-guide";
 
 const server = new McpServer({

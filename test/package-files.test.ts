@@ -6,7 +6,7 @@ const packageJson = JSON.parse(await readFile(path.resolve("package.json"), "utf
   files?: string[];
 };
 
-assert.deepEqual(packageJson.files, ["dist", "DEBUG_GUIDE.md", "skills"]);
+assert.deepEqual(packageJson.files, ["dist", "GUIDE.md", "skills"]);
 assert.equal(packageJson.files?.includes("scenarios"), false);
 assert.equal(packageJson.files?.includes("eval"), false);
 

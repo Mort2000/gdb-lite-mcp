@@ -1,14 +1,11 @@
-Use the repository-local Skill at `skills/gdb-debugging/SKILL.md` and its `references/crash.md` file.
+The invoice export job crashed in production. Please debug it with GDB Lite MCP.
 
-Debug the core file for `scenarios/bin/invoice-export` with GDB Lite MCP. The source is under `scenarios/core-invoice-export/`.
+The binary is `scenarios/bin/invoice-export`, the core file is `scenarios/bin/invoice-export.core`, and the source is under `scenarios/core-invoice-export/`.
 
-When calling `gdb_spawn`, use `work_dir="."`, `prog_path="scenarios/bin/invoice-export"`, and `core_path="scenarios/bin/invoice-export.core"`.
-
-The invoice export job crashed in production and only the core file is available. Do not edit files and do not rerun the binary before inspecting the core. Use GDB through the MCP tools to identify the faulting operation and invalid value.
+Only the core file is available for the failing production run. Do not edit files and do not rerun the binary before inspecting the core. Identify the faulting operation and invalid value.
 
 Final answer format:
 
 - Root cause and exact source location.
 - Expected invariant versus actual runtime state.
 - Decisive GDB evidence.
-- Brief note on how the Skill affected interaction efficiency.

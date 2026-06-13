@@ -1,14 +1,9 @@
-Use the repository-local Skill at `skills/gdb-debugging/SKILL.md` and its relevant reference file.
+The program `scenarios/bin/packet` changes a packet checksum unexpectedly after loading a label. Please debug it with GDB Lite MCP.
 
-Debug `scenarios/bin/packet` with GDB Lite MCP. The source is under `scenarios/memory-corruption-packet/`.
-
-When calling `gdb_spawn`, use `work_dir="."` and `prog_path="scenarios/bin/packet"`.
-
-The packet checksum changes unexpectedly after loading a label. Do not edit files. Use GDB through the MCP tools to find the write that corrupts the value. Prefer watchpoints and concise snapshots.
+The source is under `scenarios/memory-corruption-packet/`. Do not edit files. Find the write that corrupts the checksum.
 
 Final answer format:
 
 - Root cause and exact source location.
 - Expected invariant versus actual runtime state.
 - Decisive GDB evidence.
-- Brief note on how the Skill affected interaction efficiency.
