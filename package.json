@@ -1,6 +1,6 @@
 {
   "name": "gdb-lite-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A small TypeScript MCP server for driving gdb sessions.",
   "license": "MIT",
   "type": "module",
