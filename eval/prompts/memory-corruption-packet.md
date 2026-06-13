@@ -1,4 +1,4 @@
-Use the repository-local Skill at `../skills/gdb-debugging/SKILL.md` and its relevant reference file.
+Use the repository-local Skill at `skills/gdb-debugging/SKILL.md` and its relevant reference file.
 
 Debug `scenarios/bin/packet` with GDB Lite MCP. The source is under `scenarios/memory-corruption-packet/`.
 

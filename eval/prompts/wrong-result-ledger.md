@@ -1,4 +1,4 @@
-Use the repository-local Skill at `../skills/gdb-debugging/SKILL.md` and its relevant reference file.
+Use the repository-local Skill at `skills/gdb-debugging/SKILL.md` and its relevant reference file.
 
 Debug `scenarios/bin/ledger` with GDB Lite MCP. The source is under `scenarios/wrong-result-ledger/`.
 

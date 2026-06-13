@@ -48,8 +48,17 @@ Point your MCP client at the built server entry point:
 }
 ```
 
-For repository-local evaluation, `eval/opencode.json` starts the same server
-from `../dist/index.js`.
+For repository-local evaluation, the root `opencode.json` starts the same server
+from `dist/index.js`.
+
+Runtime environment variables:
+
+- `GDB_LITE_GDB_PATH`: GDB executable path. Defaults to `gdb`.
+- `GDB_LITE_MAX_SESSIONS`: maximum live sessions. Defaults to `8`; must be a positive integer.
+- `GDB_LITE_MAX_INTERNAL_BUFFER_CHARS`: per-session retained output buffer. Defaults to `4194304`; must be a positive integer.
+- `GDB_LITE_AUTO_INIT`: set to `0`, `false`, `no`, or `off` to disable automatic startup defaults.
+
+Invalid runtime configuration values fail fast when the server starts.
 
 ## Tools
 
@@ -58,14 +67,16 @@ The server registers these MCP tools:
 | Tool | Purpose |
 | --- | --- |
 | `gdb_spawn` | Start a GDB session for a local program, core file, attached PID, or remote target. |
-| `gdb_exec` | Send a native GDB command, or poll output with an empty command. |
+| `gdb_exec` | Send a native GDB command, poll output with an empty command, or list sessions with an empty or unknown `session_id`. |
 | `gdb_interrupt` | Send SIGINT and wait for GDB to return to a prompt. |
-| `gdb_close` | Terminate and remove a GDB session, returning whether the session existed. |
+| `gdb_close` | Terminate and remove a GDB session, or return the current session list when `session_id` is unknown. |
 
 `gdb_exec` and `gdb_interrupt` return structured state such as
 `completion_reason` (`completed`, `timeout`, or `exited`), `at_prompt`,
 `command_pending`, `needs_interrupt`, `timed_out`, `truncated`, and byte counts.
 Use this metadata to avoid stacking commands behind a still-running inferior.
+Calls on the same session are not queued; concurrent `gdb_exec` or
+`gdb_interrupt` requests are rejected.
 
 The server also exposes a `gdb-lite://debug-guide` resource backed by
 `DEBUG_GUIDE.md`.
@@ -80,7 +91,7 @@ gdb_spawn({
 
 gdb_exec({
   "session_id": "...",
-  "command": "set pagination off\nbreak main\nrun\nbt\ninfo locals",
+  "command": "break main\nrun\nbt\ninfo locals",
   "timeout": 5
 })
 

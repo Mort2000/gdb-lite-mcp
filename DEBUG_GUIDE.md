@@ -5,9 +5,9 @@ This guide is for agents using the GDB Lite MCP tools without a dedicated Skill.
 The MCP tools are intentionally minimal:
 
 - `gdb_spawn(prog_path?, work_dir, environments={}, core_path?, attach_pid?, remote_target?, gdb_args=[]) -> session_id`
-- `gdb_exec(session_id, command="", timeout=5.0) -> output + state`
+- `gdb_exec(session_id, command="", timeout=5.0) -> output + state`; empty or unknown `session_id` returns the current session list.
 - `gdb_interrupt(session_id, timeout=5.0) -> output + state`
-- `gdb_close(session_id) -> { closed, existed }`
+- `gdb_close(session_id) -> { closed, existed }`; unknown `session_id` returns the current session list.
 
 Treat `gdb_exec` as direct access to GDB. Prefer native GDB commands, breakpoint command lists, watchpoints, conditional breakpoints, and GDB Python over custom wrapper patterns.
 
@@ -19,6 +19,8 @@ Treat `gdb_exec` as direct access to GDB. Prefer native GDB commands, breakpoint
 - `needs_interrupt`: the session is not at a prompt and should usually be interrupted before sending more commands.
 
 When `timed_out=true` and `needs_interrupt=true`, avoid stacking more commands behind the running inferior. Use `gdb_interrupt`, collect a backtrace, then decide whether to continue, kill, or restart with narrower probes.
+
+Calls on the same session are not queued. Do not send concurrent `gdb_exec` or `gdb_interrupt` requests; wait for the previous call to return.
 
 ## Core Rules
 
@@ -88,22 +90,13 @@ gdb_exec({
 })
 ```
 
-3. Disable noise and set useful defaults.
+3. Set breakpoints or watchpoints based on the suspected invariant.
 
-```gdb
-set pagination off
-set print pretty on
-set print elements 200
-set confirm off
-```
+4. Run one batch probe.
 
-4. Set breakpoints or watchpoints based on the suspected invariant.
+5. Summarize evidence and decide the next probe.
 
-5. Run one batch probe.
-
-6. Summarize evidence and decide the next probe.
-
-7. Close GDB.
+6. Close GDB.
 
 ```text
 gdb_close({ "session_id": "..." })
@@ -223,16 +216,15 @@ thread apply all bt
 info locals
 ```
 
-Then add a low-noise trace around the suspected loop:
+Then stop at the suspected loop and inspect progress state:
 
 ```gdb
 break loop_body_location
-commands
-silent
+run
 printf "iter=%d state=%d progress=%d\n", iter, state, progress
-continue
-end
 ```
+
+For hang and infinite-loop cases, do not use auto-continuing breakpoint command lists such as `commands ... continue ... end`. They can keep GDB from returning to a prompt. Use separate bounded `gdb_exec` calls for `continue` or `next`, and inspect state after each stop.
 
 Use conditional breakpoints to stop only on non-progress:
 

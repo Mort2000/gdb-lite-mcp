@@ -3,7 +3,7 @@
   "mcp": {
     "gdb-lite": {
       "type": "local",
-      "command": ["node", "../dist/index.js"],
+      "command": ["node", "dist/index.js"],
       "enabled": true,
       "timeout": 30000
     }

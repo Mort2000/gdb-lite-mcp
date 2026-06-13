@@ -125,6 +125,38 @@ await assert.rejects(
   /must not override the MI interpreter/,
 );
 
+const limitedController = new GdbController({ maxSessions: 1 });
+try {
+  const limitedFirst = await limitedController.spawn({ work_dir: workDir });
+  assert.equal(limitedController.listSessions().length, 1);
+  await assert.rejects(
+    () => limitedController.spawn({ work_dir: workDir }),
+    /maximum gdb sessions reached/,
+  );
+  assert.equal(limitedController.close(limitedFirst), true);
+  const limitedSecond = await limitedController.spawn({ work_dir: workDir });
+  assert.equal(limitedController.listSessions().length, 1);
+  assert.equal(limitedController.close(limitedSecond), true);
+} finally {
+  limitedController.closeAll();
+}
+
+const concurrentSpawnController = new GdbController({ maxSessions: 1 });
+try {
+  const spawnResults = await Promise.allSettled([
+    concurrentSpawnController.spawn({ work_dir: workDir }),
+    concurrentSpawnController.spawn({ work_dir: workDir }),
+  ]);
+  assert.equal(spawnResults.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(spawnResults.filter((result) => result.status === "rejected").length, 1);
+  const rejected = spawnResults.find((result) => result.status === "rejected");
+  assert.ok(rejected && rejected.status === "rejected");
+  assert.match(String(rejected.reason), /maximum gdb sessions reached/);
+  assert.equal(concurrentSpawnController.listSessions().length, 1);
+} finally {
+  concurrentSpawnController.closeAll();
+}
+
 const sessionId = await controller.spawn({
   prog_path: programPath,
   work_dir: workDir,
@@ -381,15 +413,21 @@ const concurrentSessionId = await controller.spawn({
 
 try {
   await controller.exec(concurrentSessionId, "", 2);
-  const [first, second, third] = await Promise.all([
-    controller.exec(concurrentSessionId, "python\nimport time\ntime.sleep(0.05)\nprint('first done')\nend", 2),
-    controller.exec(concurrentSessionId, "print 22", 2),
-    controller.exec(concurrentSessionId, "print 33", 2),
-  ]);
+  const firstPromise = controller.exec(
+    concurrentSessionId,
+    "python\nimport time\ntime.sleep(0.1)\nprint('first done')\nend",
+    2,
+  );
+  await assert.rejects(
+    () => controller.exec(concurrentSessionId, "print 22", 2),
+    /already has an exec or interrupt in progress/,
+  );
+  const first = await firstPromise;
   assert.match(first.output, /first done/);
   assert.doesNotMatch(first.output, /= 22/);
+  const second = await controller.exec(concurrentSessionId, "print 22", 2);
   assert.match(second.output, /= 22/);
-  assert.doesNotMatch(second.output, /= 33/);
+  const third = await controller.exec(concurrentSessionId, "print 33", 2);
   assert.match(third.output, /= 33/);
 } finally {
   controller.close(concurrentSessionId);
@@ -404,10 +442,13 @@ await controller.exec(exitSessionId, "", 2);
 const quit = await controller.exec(exitSessionId, "quit", 2);
 assert.equal(quit.session_exited, true);
 assert.equal(quit.completion_reason, "exited");
+await delay(50);
+assert.equal(controller.hasSession(exitSessionId), false);
+assert.equal(controller.listSessions().some((session) => session.session_id === exitSessionId), false);
 await assert.rejects(
   () => controller.exec(exitSessionId, "", 1),
-  /gdb exited|gdb session closed|gdb session has exited/,
+  /unknown gdb session/,
 );
-controller.close(exitSessionId);
+assert.equal(controller.close(exitSessionId), false);
 
 console.log("gdb controller integration test passed");

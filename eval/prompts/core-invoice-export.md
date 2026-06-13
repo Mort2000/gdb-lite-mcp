@@ -1,4 +1,4 @@
-Use the repository-local Skill at `../skills/gdb-debugging/SKILL.md` and its `references/crash.md` file.
+Use the repository-local Skill at `skills/gdb-debugging/SKILL.md` and its `references/crash.md` file.
 
 Debug the core file for `scenarios/bin/invoice-export` with GDB Lite MCP. The source is under `scenarios/core-invoice-export/`.
 

@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { GdbController } from "./gdb-controller.js";
+import { GdbController, type GdbExecResult, type SessionInfo } from "./gdb-controller.js";
 
 const controller = new GdbController();
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -39,6 +39,12 @@ const executionStateOutputSchema = {
   omitted_bytes: z.number().int().nonnegative(),
   internal_buffer_bytes: z.number().int().nonnegative(),
 };
+
+const sessionInfoSchema = z.object({
+  session_id: z.string(),
+  work_dir: z.string(),
+  program: z.string().nullable(),
+});
 
 const sessionExecutionInputSchema = {
   session_id: z.string(),
@@ -136,14 +142,33 @@ server.registerTool(
   {
     title: "Execute gdb command",
     description:
-      "Send a gdb command and return all output since the previous gdb_exec or gdb_interrupt call. Empty command only polls output.",
+      "Send a gdb command and return all output since the previous gdb_exec or gdb_interrupt call. Empty command only polls output. If session_id is empty or unknown, returns the current gdb session list instead of executing a command.",
     inputSchema: {
-      ...sessionExecutionInputSchema,
+      session_id: z.string().default("").describe("GDB session id. Leave empty to list current sessions."),
+      timeout: z.number().min(0).default(5.0),
+      max_output_bytes: maxOutputBytesSchema,
       command: z.string().default(""),
     },
-    outputSchema: executionStateOutputSchema,
+    outputSchema: {
+      ...executionStateOutputSchema,
+      sessions: z.array(sessionInfoSchema).optional(),
+      requested_session_id: z.string().optional(),
+    },
   },
   async ({ session_id, command, timeout, max_output_bytes }) => {
+    if (session_id.trim() === "" || !controller.hasSession(session_id)) {
+      const result = buildSessionListExecResult(controller.listSessions(), session_id);
+      return {
+        content: [
+          {
+            type: "text",
+            text: result.output,
+          },
+        ],
+        structuredContent: result,
+      };
+    }
+
     const result = await controller.exec(session_id, command, timeout, max_output_bytes);
     return {
       content: [
@@ -187,27 +212,49 @@ server.registerTool(
   "gdb_close",
   {
     title: "Close gdb",
-    description: "Terminate and remove a gdb session.",
+    description:
+      "Terminate and remove a gdb session. If session_id is unknown, returns the current gdb session list.",
     inputSchema: {
       session_id: z.string(),
     },
     outputSchema: {
       closed: z.boolean(),
       existed: z.boolean(),
+      sessions: z.array(sessionInfoSchema).optional(),
+      requested_session_id: z.string().optional(),
     },
   },
   async ({ session_id }) => {
     const existed = controller.close(session_id);
+    if (!existed) {
+      const sessions = controller.listSessions();
+      const text = formatSessionList(sessions, session_id);
+      return {
+        content: [
+          {
+            type: "text",
+            text,
+          },
+        ],
+        structuredContent: {
+          closed: false,
+          existed: false,
+          sessions,
+          requested_session_id: session_id,
+        },
+      };
+    }
+
     return {
       content: [
         {
           type: "text",
-          text: existed ? "closed" : "not found",
+          text: "closed",
         },
       ],
       structuredContent: {
-        closed: existed,
-        existed,
+        closed: true,
+        existed: true,
       },
     };
   },
@@ -228,3 +275,42 @@ process.once("SIGTERM", () => {
 process.once("exit", shutdown);
 
 await server.connect(new StdioServerTransport());
+
+function buildSessionListExecResult(
+  sessions: SessionInfo[],
+  requestedSessionId: string,
+): GdbExecResult & { sessions: SessionInfo[]; requested_session_id?: string } {
+  const output = formatSessionList(sessions, requestedSessionId);
+  return {
+    output,
+    completion_reason: "completed",
+    saw_prompt: false,
+    timed_out: false,
+    session_exited: false,
+    at_prompt: false,
+    command_pending: false,
+    needs_interrupt: false,
+    bytes: Buffer.byteLength(output, "utf8"),
+    duration_ms: 0,
+    truncated: false,
+    omitted_bytes: 0,
+    internal_buffer_bytes: 0,
+    sessions,
+    requested_session_id: requestedSessionId.trim() === "" ? undefined : requestedSessionId,
+  };
+}
+
+function formatSessionList(sessions: SessionInfo[], requestedSessionId: string): string {
+  const prefix = requestedSessionId.trim() === ""
+    ? "Current gdb sessions"
+    : `No gdb session found for ${JSON.stringify(requestedSessionId)}. Current gdb sessions`;
+
+  if (sessions.length === 0) {
+    return `${prefix}: none`;
+  }
+
+  const lines = sessions.map((session) =>
+    `- session_id=${session.session_id} work_dir=${session.work_dir} program=${session.program ?? "(none)"}`,
+  );
+  return `${prefix}:\n${lines.join("\n")}`;
+}

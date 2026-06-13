@@ -1,4 +1,4 @@
-Do not read or use files under `../skills/`. Use only the GDB Lite MCP tools and the scenario source.
+Do not read or use files under `skills/`. Use only the GDB Lite MCP tools and the scenario source.
 
 Debug the core file for `scenarios/bin/invoice-export` with GDB Lite MCP. The source is under `scenarios/core-invoice-export/`.
 

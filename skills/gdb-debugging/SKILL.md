@@ -10,15 +10,7 @@ Use GDB as the debugging engine. Keep the MCP API thin: spawn a session, send na
 ## Workflow
 
 1. Read enough source to state the symptom, expected invariant, and likely boundary where the invariant first matters.
-2. Spawn GDB and set low-noise defaults:
-
-```gdb
-set pagination off
-set print pretty on
-set print elements 200
-set confirm off
-```
-
+2. Spawn GDB. GDB Lite applies low-noise startup defaults automatically; use `gdb_args` only for target-specific setup.
 3. Prefer one discriminating probe over many tiny probes. A good first batch usually includes `break`, `run`, `bt`, `frame`, `info args`, `info locals`, and labeled `print` or `printf` expressions.
 4. For repeated observations, use GDB-native automation: `commands ... end`, conditional breakpoints, watchpoints, or short `python ... end` blocks.
 5. Keep a compact hypothesis/evidence table mentally or in notes. Stop probing when the evidence identifies the earliest wrong state transition, or when a complete trace proves the expected value or fixture is inconsistent with runtime inputs.
@@ -36,7 +28,7 @@ set confirm off
 - Batch related commands in one `gdb_exec` call.
 - Avoid human-style repeated `next`/`print` calls unless narrowing one transition.
 - Print labels with values: `printf "i=%d total=%d\n", i, total`.
-- For loop traces, prefer passive before/after breakpoints over `next` or `step` inside breakpoint command lists:
+- For non-hang loop traces, prefer passive before/after breakpoints over `next` or `step` inside breakpoint command lists:
 
 ```gdb
 break file.c:UPDATE_LINE
@@ -55,6 +47,7 @@ run
 ```
 
 - Limit output. If a trace is large, rerun with a conditional breakpoint or narrower range.
+- For hang or infinite-loop cases, do not use auto-continuing breakpoint command lists; use plain breakpoints, bounded manual `continue`/`next`, or stop-on-condition probes instead.
 - Treat `timed_out && needs_interrupt` as "do not stack more commands." Use `gdb_interrupt`, then collect `bt`, `thread apply all bt`, and locals.
 - Treat `at_prompt=false` and `command_pending=true` as a session-control issue before it is a debugging hypothesis.
 - For MCP `gdb_spawn`, use a stable `work_dir` such as the repository root and a `prog_path` relative to that directory, or pass an absolute `prog_path`. Avoid mixing a binary directory `work_dir` with paths already relative to another directory.
