@@ -48,7 +48,7 @@ Point your MCP client at the built server entry point:
 }
 ```
 
-For repository-local evaluation, `eval/run-scenario.sh` writes a temporary
+For repository-local evaluation, `eval/run_eval.py` writes a temporary
 `opencode.json` that starts the same server from the built `dist/index.js`.
 
 Runtime environment variables:
@@ -141,7 +141,7 @@ included in the npm package.
 ```bash
 npm run build
 bash scenarios/build-all.sh
-bash eval/run-scenario.sh wrong-result-ledger
+python3 eval/run_eval.py --scenario wrong-result-ledger
 ```
 
 Run records should be kept in `eval/opencode-results.md`. That file is ignored

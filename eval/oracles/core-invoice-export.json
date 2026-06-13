@@ -1,0 +1,6 @@
+{
+  "scenario": "core-invoice-export",
+  "must_mention": ["account", "NULL", "acct-200", "active"],
+  "must_not_claim": [],
+  "root_cause": "find_active_account returns NULL for an inactive account and the caller passes it to emit_invoice_row, which dereferences account->display_name."
+}

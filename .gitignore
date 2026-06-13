@@ -5,6 +5,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # Native scenario build artifacts
 scenarios/bin/
@@ -17,6 +19,7 @@ core.*
 # Evaluation run artifacts
 eval/opencode-results.md
 eval/results/
+eval/runs/
 eval/scenarios/
 eval/logs/
 *.log

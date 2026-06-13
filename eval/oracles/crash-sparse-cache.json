@@ -1,0 +1,6 @@
+{
+  "scenario": "crash-sparse-cache",
+  "must_mention": ["gamma", "cache[2]", "NULL", "sentinel"],
+  "must_not_claim": [],
+  "root_cause": "find_entry treats an embedded NULL key as the end of the cache and returns NULL before reaching the gamma entry."
+}

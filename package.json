@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "tsx test/unit/mi-parser.test.ts && tsx test/unit/timeout.test.ts && tsx test/unit/buffer.test.ts && tsx test/unit/config.test.ts && tsx test/unit/gdb-session.test.ts && tsx test/gdb-controller.test.ts && tsx test/package-files.test.ts",
+    "test": "tsx test/unit/mi-parser.test.ts && tsx test/unit/timeout.test.ts && tsx test/unit/buffer.test.ts && tsx test/unit/config.test.ts && tsx test/unit/gdb-session.test.ts && tsx test/gdb-controller.test.ts && tsx test/package-files.test.ts && python3 -m unittest discover -s test -p '*_test.py'",
     "start": "node dist/index.js",
     "prepack": "npm run build"
   },

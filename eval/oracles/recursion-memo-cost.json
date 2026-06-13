@@ -1,0 +1,6 @@
+{
+  "scenario": "recursion-memo-cost",
+  "must_mention": ["memo", "day", "coupon_used", "state"],
+  "must_not_claim": [],
+  "root_cause": "The memo table is keyed only by day even though solve(day, coupon_used) depends on coupon_used."
+}

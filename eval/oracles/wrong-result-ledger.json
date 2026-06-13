@@ -1,0 +1,6 @@
+{
+  "scenario": "wrong-result-ledger",
+  "must_mention": ["round-07", "0.1", "0.2", "0.3", "floating-point"],
+  "must_not_claim": ["expected value is wrong"],
+  "root_cause": "round-07 compares 0.1 + 0.2 directly with 0.3; binary floating-point representation makes actual != expect even though the decimal arithmetic appears equal."
+}

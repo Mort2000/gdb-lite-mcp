@@ -1,0 +1,6 @@
+{
+  "scenario": "hang-tokenizer",
+  "must_mention": ["underscore", "pos", "continue", "tokens"],
+  "must_not_claim": [],
+  "root_cause": "The underscore branch increments tokens and continues without advancing pos, so the scanner remains on the same character."
+}

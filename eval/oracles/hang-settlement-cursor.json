@@ -1,0 +1,6 @@
+{
+  "scenario": "hang-settlement-cursor",
+  "must_mention": ["EVENT_RETRY", "retry_after_ms", "cursor", "continue"],
+  "must_not_claim": [],
+  "root_cause": "A zero-delay retry event continues the loop before cursor++ runs, so the same event is processed forever."
+}

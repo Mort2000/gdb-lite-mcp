@@ -1,0 +1,6 @@
+{
+  "scenario": "memory-corruption-packet",
+  "must_mention": ["label[8]", "priority-high", "memcpy", "overflow"],
+  "must_not_claim": [],
+  "root_cause": "load_label copies strlen(source) + 1 bytes into packet->label[8], overflowing into adjacent fields."
+}
