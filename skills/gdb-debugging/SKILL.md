@@ -11,8 +11,8 @@ Use GDB as the debugging engine. Keep the MCP API thin: spawn a session, send na
 
 1. Read enough source to state the symptom, expected invariant, and likely boundary where the invariant first matters.
 2. Spawn GDB. GDB Lite applies low-noise startup defaults automatically; use `gdb_args` only for target-specific setup.
-3. Prefer one discriminating probe over many tiny probes. A good first batch usually includes `break`, `run`, `bt`, `frame`, `info args`, `info locals`, and labeled `print` or `printf` expressions.
-4. For repeated observations, use GDB-native automation: `commands ... end`, conditional breakpoints, watchpoints, or short `python ... end` blocks.
+3. Prefer one discriminating probe over many tiny probes.
+4. For repeated observations, use GDB-native automation such as breakpoint command lists, conditional breakpoints, watchpoints, or short GDB Python blocks.
 5. Keep a compact hypothesis/evidence table mentally or in notes. Stop probing when the evidence identifies the earliest wrong state transition, or when a complete trace proves the expected value or fixture is inconsistent with runtime inputs.
 6. Close the GDB session before finishing.
 
@@ -27,38 +27,21 @@ Use GDB as the debugging engine. Keep the MCP API thin: spawn a session, send na
 
 - Batch related commands in one `gdb_exec` call.
 - Avoid human-style repeated `next`/`print` calls unless narrowing one transition.
-- Print labels with values: `printf "i=%d total=%d\n", i, total`.
-- For non-hang loop traces, prefer passive before/after breakpoints over `next` or `step` inside breakpoint command lists:
-
-```gdb
-break file.c:UPDATE_LINE
-commands
-silent
-printf "before i=%d state=%d input=%d\n", i, state, input[i]
-continue
-end
-break file.c:AFTER_UPDATE_LINE
-commands
-silent
-printf "after i=%d state=%d\n", i, state
-continue
-end
-run
-```
-
+- Print labels with values when collecting traces.
+- For non-hang loop traces, prefer passive before/after breakpoints over repeated stepping.
 - Limit output. If a trace is large, rerun with a conditional breakpoint or narrower range.
 - For hang or infinite-loop cases, do not use auto-continuing breakpoint command lists; use plain breakpoints, bounded manual `continue`/`next`, or stop-on-condition probes instead.
 - Treat `timed_out && needs_interrupt` as "do not stack more commands." Use `gdb_interrupt`, then collect `bt`, `thread apply all bt`, and locals.
 - Treat `at_prompt=false` and `command_pending=true` as a session-control issue before it is a debugging hypothesis.
 - For MCP `gdb_spawn`, use a stable `work_dir` such as the repository root and a `prog_path` relative to that directory, or pass an absolute `prog_path`. Avoid mixing a binary directory `work_dir` with paths already relative to another directory.
 
-## Reference Selection
+## Scenario Hints
 
-- Wrong final value, bad accumulator, parser mismatch: read `references/wrong-result.md`.
-- Segfault, abort, invalid pointer, failed assertion: read `references/crash.md`.
-- Hang, infinite loop, blocking wait: read `references/hang.md`.
-- Value changes unexpectedly, heap/stack overwrite: read `references/memory-corruption.md`.
-- Recursive search, dynamic programming, memoization, or repeated stack states: read `references/recursion.md`.
+- Wrong result, bad accumulator, parser mismatch, or exact equality failure: consider `break`, conditional `break`, `commands`, `printf`, `display`, `watch`, `finish`, and `print`.
+- Segfault, abort, invalid pointer, failed assertion, or core file: consider `run`, `bt full`, `frame`, `info args`, `info locals`, `info registers`, `list`, `up`, and `x`.
+- Hang, infinite loop, or blocking wait: consider bounded `run` or `continue`, `gdb_interrupt`, `bt`, `thread apply all bt`, `frame`, `info locals`, conditional `break`, and bounded `next`.
+- Memory corruption, unexpected field change, or overwrite: consider `watch`, hardware watchpoints, `awatch`, `rwatch`, `x`, `bt`, `frame`, and caller inspection when a library write triggers the watchpoint.
+- Recursion, dynamic programming, memoization, or repeated stack states: consider conditional `break`, `commands`, `printf`, `finish`, `bt`, and state tuple plus cache-slot inspection.
 - Repetitive inspection or structured output: read `references/gdb-python.md`.
 
 If the MCP server exposes `gdb-lite://debug-guide`, read it when you need fallback examples or when a client cannot load this Skill.

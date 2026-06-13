@@ -14,7 +14,7 @@ Programs are written to `scenarios/bin/`.
 
 | Scenario | Program | Symptom |
 | --- | --- | --- |
-| wrong-result-ledger | `scenarios/bin/ledger` | Prints a closing balance that does not match the expected balance. |
+| wrong-result-ledger | `scenarios/bin/ledger` | Returns failure after one floating-point reconciliation round fails an exact comparison. |
 | crash-sparse-cache | `scenarios/bin/sparse-cache` | Segfaults while reading a cache entry. |
 | hang-tokenizer | `scenarios/bin/tokenizer` | Hangs while tokenizing an identifier string. |
 | memory-corruption-packet | `scenarios/bin/packet` | A checksum field changes unexpectedly after loading a label. |
