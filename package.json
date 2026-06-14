@@ -10,7 +10,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "eval:build": "python3 eval/scenarios/build_scenarios.py",
-    "test": "tsx test/unit/mi-parser.test.ts && tsx test/unit/timeout.test.ts && tsx test/unit/buffer.test.ts && tsx test/unit/config.test.ts && tsx test/unit/gdb-session.test.ts && tsx test/gdb-controller.test.ts && tsx test/package-files.test.ts && python3 -m unittest discover -s test -p '*_test.py'",
+    "lint": "eslint .",
+    "test:ci": "tsx test/unit/mi-parser.test.ts && tsx test/unit/timeout.test.ts && tsx test/unit/buffer.test.ts && tsx test/unit/config.test.ts && tsx test/unit/gdb-session.test.ts && tsx test/gdb-controller.test.ts && tsx test/package-files.test.ts",
+    "test": "npm run test:ci && python3 -m unittest discover -s test -p '*_test.py'",
     "start": "node dist/index.js",
     "prepack": "npm run build"
   },
@@ -19,9 +21,12 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@eslint/js": "^9.20.0",
     "@types/node": "^24.10.1",
+    "eslint": "^9.20.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.24.0"
   },
   "engines": {
     "node": ">=20"
