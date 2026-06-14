@@ -9,7 +9,8 @@ __pycache__/
 *.pyc
 
 # Native scenario build artifacts
-scenarios/bin/
+eval/scenarios/*/build/
+eval/scenarios/*/workspace/
 *.o
 *.out
 *.core
@@ -20,7 +21,6 @@ core.*
 eval/opencode-results.md
 eval/results/
 eval/runs/
-eval/scenarios/
 eval/logs/
 *.log
 

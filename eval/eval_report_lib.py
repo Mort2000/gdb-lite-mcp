@@ -9,9 +9,10 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from scenario_discovery import require_scenarios
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ORACLE_DIR = REPO_ROOT / "eval" / "oracles"
 MANUAL_EVAL_FILENAME = "manual-eval.json"
 REPORT_FILENAME = "report.md"
 MANUAL_SCHEMA_VERSION = 1
@@ -77,7 +78,10 @@ def boolish_text(value: Any) -> str:
 
 
 def load_oracle(scenario: str) -> dict[str, Any] | None:
-    path = ORACLE_DIR / f"{scenario}.json"
+    try:
+        path = require_scenarios([scenario])[0].oracle_path
+    except ValueError:
+        return None
     if not path.is_file():
         return None
     return load_json(path)

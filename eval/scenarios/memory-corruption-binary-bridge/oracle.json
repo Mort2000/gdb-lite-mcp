@@ -1,0 +1,19 @@
+{
+  "scenario": "memory-corruption-binary-bridge",
+  "must_mention": [
+    "vendor_manifest_key_from_file",
+    "vendor_manifest_stamp",
+    "required",
+    "48",
+    "NULL",
+    "canary",
+    "key[48]",
+    "manifest-feed.bin"
+  ],
+  "must_not_claim": [
+    "binary feed is malformed",
+    "vendor_manifest_stamp is the root bug",
+    "stack canary"
+  ],
+  "root_cause": "The visible caller passes a fixed 48-byte key buffer from vendor_manifest_key_from_file directly to vendor_manifest_stamp. The manifest key parsed from manifest-feed.bin is longer than the buffer, so the producer copies 48 bytes and leaves no NULL terminator. vendor_manifest_stamp treats the buffer as an in-place C string and writes past key[47], first overwriting canary[0] at key[48]."
+}

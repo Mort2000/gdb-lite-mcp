@@ -15,6 +15,12 @@ run_eval = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(run_eval)
 
+EVAL_REPORT_PATH = REPO_ROOT / "eval" / "eval_report_lib.py"
+REPORT_SPEC = importlib.util.spec_from_file_location("eval_report_lib", EVAL_REPORT_PATH)
+eval_report_lib = importlib.util.module_from_spec(REPORT_SPEC)
+assert REPORT_SPEC.loader is not None
+REPORT_SPEC.loader.exec_module(eval_report_lib)
+
 
 GDB_SESSION_ID = "81a80d2e-1111-2222-3333-444455556666"
 
@@ -40,9 +46,9 @@ class RunEvalTest(unittest.TestCase):
                         {
                             "role": "assistant",
                             "parts": [
-                                {"type": "tool", "tool": "read", "callID": "read1", "state": {"status": "completed", "input": {"filePath": "scenarios/foo.c"}, "output": "ok"}},
+                                {"type": "tool", "tool": "read", "callID": "read1", "state": {"status": "completed", "input": {"filePath": "src/foo.c"}, "output": "ok"}},
                                 {"type": "tool", "tool": "skill", "callID": "skill1", "state": {"status": "completed", "input": {"name": "gdb-debugging"}, "output": "ok"}},
-                                {"type": "tool", "tool": "gdb-lite_gdb_spawn", "callID": "spawn1", "state": {"status": "completed", "input": {"prog_path": "scenarios/bin/foo", "work_dir": "/tmp/work"}, "output": "__GDB_SESSION_ID__"}},
+                                {"type": "tool", "tool": "gdb-lite_gdb_spawn", "callID": "spawn1", "state": {"status": "completed", "input": {"prog_path": "bin/foo", "work_dir": "/tmp/work"}, "output": "__GDB_SESSION_ID__"}},
                                 {"type": "tool", "tool": "gdb-lite_gdb_exec", "callID": "exec1", "state": {"status": "completed", "input": {"session_id": "__GDB_SESSION_ID__", "command": "bt\\nprint x"}, "output": "ok"}},
                                 {"type": "tool", "tool": "gdb-lite_gdb_interrupt", "callID": "int1", "state": {"status": "completed", "input": {"session_id": "__GDB_SESSION_ID__"}}},
                                 {"type": "tool", "tool": "gdb-lite_gdb_close", "callID": "close1", "state": {"status": "completed", "input": {"session_id": "__GDB_SESSION_ID__"}}},
@@ -86,18 +92,24 @@ class RunEvalTest(unittest.TestCase):
                 args=args,
                 opencode_bin=self.fake_opencode(tmpdir),
                 mode="skill",
-                scenario="wrong-result-ledger",
+                scenario="hang-tokenizer",
                 round_number=1,
             )
 
-            round_dir = suite_dir / "skill" / "wrong-result-ledger" / "round-001"
+            round_dir = suite_dir / "skill" / "hang-tokenizer" / "round-001"
             summary = json.loads((round_dir / "summary.json").read_text(encoding="utf-8"))
+            workspace_info = json.loads((round_dir / "workspace-info.json").read_text(encoding="utf-8"))
             prompt = (round_dir / "prompt.md").read_text(encoding="utf-8")
             self.assertIsNone(summary["export_error"])
             self.assertFalse(prompt.startswith("/gdb-debugging "))
             self.assertIn("--file", summary["run"]["command"])
             prompt_file_index = summary["run"]["command"].index("--file") + 1
-            self.assertEqual(Path(summary["run"]["command"][prompt_file_index]), round_dir / "prompt.md")
+            prompt_file = Path(summary["run"]["command"][prompt_file_index])
+            self.assertEqual(prompt_file, Path(workspace_info["model_prompt"]))
+            self.assertEqual(prompt_file.parent, Path(workspace_info["workspace"]))
+            self.assertEqual(prompt_file.name, "TASK.md")
+            self.assertNotEqual(prompt_file, round_dir / "prompt.md")
+            self.assertEqual(Path(workspace_info["audit_prompt"]), round_dir / "prompt.md")
             self.assertEqual(summary["run"]["command"][-1], "/gdb-debugging Follow the instructions in the attached prompt file.")
             self.assertEqual(summary["session_id"], "ses_eval_test")
             self.assertEqual(summary["final_answer"], "Final answer text\n")
@@ -105,9 +117,9 @@ class RunEvalTest(unittest.TestCase):
             self.assertEqual(summary["tokens"]["total"], 21)
             self.assertEqual(summary["gdb_commands"], ["bt\nprint x"])
             self.assertEqual(summary["gdb_command_lines"], ["bt", "print x"])
-            self.assertEqual(summary["file_reads"], ["scenarios/foo.c"])
+            self.assertEqual(summary["file_reads"], ["src/foo.c"])
             self.assertEqual(summary["skill_reads"], ["gdb-debugging"])
-            self.assertEqual(summary["gdb_sessions"]["spawned"][0]["program"], "scenarios/bin/foo")
+            self.assertEqual(summary["gdb_sessions"]["spawned"][0]["program"], "bin/foo")
             self.assertEqual(summary["gdb_sessions"]["spawned"][0]["cwd"], "/tmp/work")
             self.assertEqual(summary["gdb_sessions"]["spawned"][0]["session_id"], GDB_SESSION_ID)
             self.assertEqual(summary["gdb_sessions"]["interrupted"][0]["session_id"], GDB_SESSION_ID)
@@ -200,15 +212,41 @@ class RunEvalTest(unittest.TestCase):
     def test_no_skill_workspace_does_not_copy_project_skill(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             round_dir = Path(tmp) / "suite" / "no-skill" / "hang-tokenizer" / "round-001"
-            workspace = run_eval.build_workspace(round_dir, "no-skill")
+            workspace = run_eval.build_workspace(round_dir, "no-skill", "hang-tokenizer")
             try:
                 self.assertFalse((workspace / ".opencode" / "skills" / "gdb-debugging").exists())
+                self.assertTrue((workspace / "src" / "tokenizer.c").is_file())
+                self.assertTrue((workspace / "bin" / "tokenizer").is_file())
                 config = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
                 self.assertEqual(config["permission"], {})
             finally:
                 import shutil
 
                 shutil.rmtree(workspace, ignore_errors=True)
+
+    def test_all_scenario_workspaces_hide_evaluator_files(self) -> None:
+        forbidden_names = {"README.md", "oracle.json", "Makefile"}
+        for scenario in run_eval.available_scenarios():
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as tmp:
+                round_dir = Path(tmp) / "suite" / "no-skill" / scenario / "round-001"
+                workspace = run_eval.build_workspace(round_dir, "no-skill", scenario)
+                try:
+                    installed = [path.relative_to(workspace) for path in workspace.rglob("*")]
+                    file_names = {path.name for path in installed if (workspace / path).is_file()}
+                    path_parts = {part for path in installed for part in path.parts}
+                    self.assertTrue((workspace / "opencode.json").is_file())
+                    self.assertTrue(any(path.parts[0] == "bin" for path in installed if (workspace / path).is_file()))
+                    self.assertFalse(forbidden_names & file_names)
+                    self.assertNotIn("private", path_parts)
+                finally:
+                    import shutil
+
+                    shutil.rmtree(workspace, ignore_errors=True)
+
+    def test_oracle_checklist_loads_from_scenario_directory(self) -> None:
+        checklist = eval_report_lib.oracle_checklist("crash-sparse-cache")
+        texts = "\n".join(str(item.get("text") or item.get("label") or "") for item in checklist)
+        self.assertIn("sentinel", texts)
 
 
 if __name__ == "__main__":

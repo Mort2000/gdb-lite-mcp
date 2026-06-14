@@ -49,8 +49,8 @@ Use `prog_path` for normal local execution:
 
 ```text
 gdb_spawn({
-  "prog_path": "scenarios/bin/program",
-  "work_dir": "/absolute/repository/root"
+  "prog_path": "bin/program",
+  "work_dir": "/absolute/path/to/debug-workspace"
 })
 ```
 
@@ -59,9 +59,9 @@ rerunning:
 
 ```text
 gdb_spawn({
-  "prog_path": "scenarios/bin/program",
-  "core_path": "scenarios/bin/program.core",
-  "work_dir": "/absolute/repository/root"
+  "prog_path": "bin/program",
+  "core_path": "bin/program.core",
+  "work_dir": "/absolute/path/to/debug-workspace"
 })
 ```
 
@@ -72,7 +72,7 @@ Use `remote_target` for `target remote`; pass native setup such as sysroot or
 shared library paths through `gdb_args`.
 
 Relative `prog_path` and `core_path` values are resolved from `work_dir`. Use a
-stable `work_dir` such as the repository root, or pass absolute paths. Avoid
+stable `work_dir` such as the target project root, or pass absolute paths. Avoid
 mixing a binary directory `work_dir` with paths already relative to another
 directory.
 

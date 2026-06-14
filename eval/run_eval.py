@@ -22,13 +22,12 @@ EVAL_DIR = Path(__file__).resolve().parent
 if str(EVAL_DIR) not in sys.path:
     sys.path.insert(0, str(EVAL_DIR))
 
+from scenario_discovery import Scenario, require_scenarios, scenario_names
 from eval_report_lib import ensure_manual_eval
 
 
 RUNNER_VERSION = "0.1.0"
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PROMPT_DIR = REPO_ROOT / "eval" / "prompts"
-ORACLE_DIR = REPO_ROOT / "eval" / "oracles"
 DEFAULT_OUT_DIR = REPO_ROOT / "eval" / "runs"
 SKILL_PROMPT_PREFIX = "/gdb-debugging "
 ATTACHED_PROMPT_MESSAGE = "Follow the instructions in the attached prompt file."
@@ -161,28 +160,39 @@ def collect_environment(opencode_bin: str) -> dict[str, Any]:
 
 
 def available_scenarios() -> list[str]:
-    return sorted(path.stem for path in PROMPT_DIR.glob("*.md"))
+    return scenario_names()
+
+
+def resolve_scenario(name: str) -> Scenario:
+    try:
+        return require_scenarios([name])[0]
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def validate_inputs(scenarios: list[str], dry_run: bool = False) -> None:
-    missing_prompts = [name for name in scenarios if not (PROMPT_DIR / f"{name}.md").is_file()]
-    if missing_prompts:
-        raise SystemExit(f"missing prompt(s): {', '.join(missing_prompts)}")
+    try:
+        discovered = require_scenarios(scenarios)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    missing: list[str] = []
+    for scenario in discovered:
+        for path in (scenario.prompt_path, scenario.oracle_path, scenario.public_dir, scenario.makefile_path):
+            if not path.exists():
+                missing.append(repo_relative(path))
+    if missing:
+        raise SystemExit(f"missing scenario file(s): {', '.join(missing)}")
     if dry_run:
         return
-    required_paths = [
-        REPO_ROOT / "dist" / "index.js",
-        REPO_ROOT / "scenarios" / "bin",
-    ]
+    required_paths = [REPO_ROOT / "dist" / "index.js"]
     missing = [repo_relative(path) for path in required_paths if not path.exists()]
     if missing:
         raise SystemExit(f"missing required build artifact(s): {', '.join(missing)}")
-    if not any((REPO_ROOT / "scenarios" / "bin").iterdir()):
-        raise SystemExit("missing scenario binaries under scenarios/bin; run bash scenarios/build-all.sh")
 
 
 def load_oracle(scenario: str) -> dict[str, Any] | None:
-    path = ORACLE_DIR / f"{scenario}.json"
+    path = resolve_scenario(scenario).oracle_path
     if not path.is_file():
         return None
     try:
@@ -198,9 +208,50 @@ def run_message_for_mode(mode: str) -> str:
     return ATTACHED_PROMPT_MESSAGE
 
 
-def build_workspace(round_dir: Path, mode: str) -> Path:
-    workspace = Path(tempfile.mkdtemp(prefix=f"gdb-lite-eval-{safe_segment(round_dir.parent.name)}-"))
-    shutil.copytree(REPO_ROOT / "scenarios", workspace / "scenarios", symlinks=True)
+def install_scenario_workspace(round_dir: Path, scenario: Scenario, workspace: Path) -> dict[str, Any]:
+    build_dir = round_dir / "build"
+    cmd = [
+        "make",
+        "-C",
+        str(scenario.path),
+        "install",
+        f"BUILD_DIR={build_dir}",
+        f"WORKSPACE_DIR={workspace}",
+    ]
+    proc = subprocess.run(
+        cmd,
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    write_text(round_dir / "scenario-build.stdout.log", proc.stdout)
+    write_text(round_dir / "scenario-build.stderr.log", proc.stderr)
+    info = {
+        "scenario_makefile": repo_relative(scenario.makefile_path),
+        "build_dir": str(build_dir),
+        "install_command": cmd,
+        "install_exit_code": proc.returncode,
+    }
+    write_json(round_dir / "scenario-build.json", info)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"scenario install failed for {scenario.name} with exit code {proc.returncode}; "
+            f"see {repo_relative(round_dir / 'scenario-build.stderr.log')}"
+        )
+    return info
+
+
+def build_workspace(round_dir: Path, mode: str, scenario: str) -> Path:
+    round_dir.mkdir(parents=True, exist_ok=True)
+    scenario_info = resolve_scenario(scenario)
+    workspace = Path(tempfile.mkdtemp(prefix=f"debug-work-{safe_segment(scenario)}-"))
+    try:
+        install_scenario_workspace(round_dir, scenario_info, workspace)
+    except Exception:
+        shutil.rmtree(workspace, ignore_errors=True)
+        raise
     if mode in {"skill", "ablation"}:
         skills_target = workspace / ".opencode" / "skills"
         skills_target.mkdir(parents=True, exist_ok=True)
@@ -222,6 +273,12 @@ def build_workspace(round_dir: Path, mode: str) -> Path:
     }
     write_json(workspace / "opencode.json", config)
     return workspace
+
+
+def install_prompt_for_model(workspace: Path, prompt_text: str) -> Path:
+    prompt_path = workspace / "TASK.md"
+    write_text(prompt_path, prompt_text)
+    return prompt_path
 
 
 def kill_process_group(proc: subprocess.Popen[str]) -> None:
@@ -1009,11 +1066,12 @@ def run_round(
 ) -> None:
     round_dir = suite_dir / mode / scenario / f"round-{round_number:03d}"
     round_dir.mkdir(parents=True, exist_ok=True)
-    prompt_path = PROMPT_DIR / f"{scenario}.md"
-    prompt_text = read_text(prompt_path)
+    scenario_info = resolve_scenario(scenario)
+    prompt_text = read_text(scenario_info.prompt_path)
     round_prompt_path = round_dir / "prompt.md"
     write_text(round_prompt_path, prompt_text)
-    workspace = build_workspace(round_dir, mode)
+    workspace = build_workspace(round_dir, mode, scenario)
+    model_prompt_path = install_prompt_for_model(workspace, prompt_text)
     workspace_info = {
         "workspace": str(workspace),
         "preserved_workspace": None,
@@ -1021,13 +1079,17 @@ def run_round(
         "scenario": scenario,
         "skills_copied": mode in {"skill", "ablation"},
         "opencode_config": str(workspace / "opencode.json"),
+        "scenario_makefile": repo_relative(scenario_info.makefile_path),
+        "build_dir": str(round_dir / "build"),
+        "audit_prompt": str(round_prompt_path),
+        "model_prompt": str(model_prompt_path),
     }
     write_json(round_dir / "workspace-info.json", workspace_info)
 
     run_result = run_opencode(
         opencode_bin=opencode_bin,
         workspace=workspace,
-        prompt_file=round_prompt_path,
+        prompt_file=model_prompt_path,
         message_text=run_message_for_mode(mode),
         model=args.model,
         variant=args.variant,
@@ -1111,13 +1173,13 @@ def run_round(
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run structured OpenCode eval suites for GDB Lite MCP.")
-    parser.add_argument("--scenario", action="append", default=[], help="Scenario name under eval/prompts; repeatable.")
-    parser.add_argument("--all", action="store_true", help="Run all prompts under eval/prompts.")
+    parser.add_argument("--scenario", action="append", default=[], help="Scenario name under eval/scenarios; repeatable.")
+    parser.add_argument("--all", action="store_true", help="Run all enabled scenarios under eval/scenarios.")
     parser.add_argument("--mode", action="append", choices=["skill", "no-skill", "ablation"], help="Eval mode; repeatable.")
     parser.add_argument("--rounds", type=int, default=1, help="Rounds per scenario/mode pair.")
     parser.add_argument("--model", default=os.environ.get("OPENCODE_MODEL"), help="Provider/model passed to opencode run.")
     parser.add_argument("--variant", help="Provider-specific opencode --variant value.")
-    parser.add_argument("--timeout-sec", type=int, default=300, help="Hard timeout per round.")
+    parser.add_argument("--timeout-sec", type=int, default=600, help="Hard timeout per round.")
     parser.add_argument("--opencode-bin", default=os.environ.get("OPENCODE_BIN", "opencode"), help="OpenCode binary path.")
     parser.add_argument("--keep-workspace", action="store_true", help="Keep per-round temporary workspace.")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="Suite output parent directory.")

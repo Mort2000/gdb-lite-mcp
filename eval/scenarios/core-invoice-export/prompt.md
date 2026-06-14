@@ -1,6 +1,6 @@
 The invoice export job crashed in production. Please debug it with GDB Lite MCP.
 
-The binary is `scenarios/bin/invoice-export`, the core file is `scenarios/bin/invoice-export.core`, and the source is under `scenarios/core-invoice-export/`.
+The binary is `bin/invoice-export`, the core file is `bin/invoice-export.core`, and the source is under `src/`.
 
 Only the core file is available for the failing production run. Do not edit files and do not rerun the binary before inspecting the core. Identify the faulting operation and invalid value.
 

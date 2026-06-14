@@ -30,7 +30,7 @@ npm start
 The package also exposes a `gdb-lite-mcp` binary after it has been built.
 
 The npm package is intentionally limited to the runtime server, debug guide,
-and debugging Skill. The `scenarios/` and `eval/` directories are repository
+and debugging Skill. The `eval/scenarios/` directory contains repository
 development assets; clone this repository if you want to run them locally.
 
 ## MCP Configuration
@@ -85,8 +85,8 @@ The server also exposes a `gdb-lite://debug-guide` resource backed by
 
 ```text
 gdb_spawn({
-  "prog_path": "./scenarios/bin/ledger",
-  "work_dir": "/absolute/path/to/gdb_lite_mcp"
+  "prog_path": "bin/program",
+  "work_dir": "/absolute/path/to/debug-workspace"
 })
 
 gdb_exec({
@@ -121,17 +121,18 @@ Agents that support repository-local Skills should read
 
 ## Scenarios
 
-The repository `scenarios` directory contains small native debugging tasks used
-to evaluate the MCP server and Skill. It is not included in the npm package.
+The repository `eval/scenarios` directory contains small native debugging tasks
+used to evaluate the MCP server and Skill. It is not included in the npm
+package.
 
 Build all scenario binaries:
 
 ```bash
-bash scenarios/build-all.sh
+python3 eval/scenarios/build_scenarios.py
 ```
 
-Binaries and core files are written to `scenarios/bin/`, which is ignored by
-Git.
+Each scenario writes local build artifacts under `eval/scenarios/<name>/build/`,
+which is ignored by Git.
 
 ## Evaluation
 
@@ -140,7 +141,6 @@ included in the npm package.
 
 ```bash
 npm run build
-bash scenarios/build-all.sh
 python3 eval/run_eval.py --scenario wrong-result-ledger
 ```
 
@@ -154,8 +154,8 @@ npm run build
 npm test
 ```
 
-Generated artifacts such as `dist/`, `node_modules/`, `scenarios/bin/`, logs,
-and local evaluation results are ignored by Git.
+Generated artifacts such as `dist/`, `node_modules/`, scenario build
+directories, logs, and local evaluation results are ignored by Git.
 
 ## License
 

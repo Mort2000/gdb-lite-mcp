@@ -1,14 +1,35 @@
 # OpenCode Evaluation
 
-This directory contains natural prompts for evaluating GDB Lite MCP with and without the repository-local `gdb-debugging` Skill.
+This directory contains scenario packages for evaluating GDB Lite MCP with and without the repository-local `gdb-debugging` Skill.
 
-Run from the repository root after building the MCP server and scenarios:
+Run from the repository root after building the MCP server:
 
 ```bash
 npm run build
-bash scenarios/build-all.sh
+python3 eval/scenarios/build_scenarios.py
 python3 eval/run_eval.py --model deepseek/deepseek-v4-flash --mode skill --all
 ```
+
+Each scenario lives under `eval/scenarios/<name>/`:
+
+```text
+public/      files installed into the model workspace
+private/     optional build-only inputs, never installed
+prompt.md    natural task prompt
+oracle.json  manual judgment checklist data
+README.md    evaluator-facing notes
+Makefile     build/install/clean contract
+```
+
+The runner creates a fresh temporary workspace for every round, then calls:
+
+```bash
+make -C eval/scenarios/<name> install BUILD_DIR=<round>/build WORKSPACE_DIR=<workspace>
+```
+
+The scenario Makefile defines the user-visible mini C project layout, usually
+`src/` plus `bin/`. The runner then writes `opencode.json` and installs the
+repository-local Skill only for `skill` and `ablation` modes.
 
 `eval/run_eval.py` creates one suite directory under `eval/runs/` per
 invocation and one round directory per scenario. Each round stores the prompt,
@@ -18,18 +39,14 @@ JSON, extracted `summary.json`, `final-answer.md`, and a per-round read-only
 `manual-eval.json` file for all human judgments in that suite, and a legacy
 `report-template.md` aggregate.
 
-The runner creates an isolated workspace for each round, writes an
-`opencode.json` that starts the MCP server from the built repository
-`dist/index.js`, and copies `scenarios/` into that workspace. `skill` and
-`ablation` modes install the repository-local Skill under `.opencode/skills/`;
-`no-skill` mode omits that project Skill. Repository-local Skill visibility is
-controlled by the generated workspace, not by prompt instructions.
+Repository-local Skill visibility is controlled by the generated workspace, not
+by prompt instructions.
 
 Useful examples:
 
 ```bash
 python3 eval/run_eval.py --model deepseek/deepseek-v4-flash --mode skill --scenario hang-tokenizer
-python3 eval/run_eval.py --model deepseek/deepseek-v4-flash --mode no-skill --all --timeout-sec 300
+python3 eval/run_eval.py --model deepseek/deepseek-v4-flash --mode no-skill --all --timeout-sec 600
 python3 eval/run_eval.py --model deepseek/deepseek-v4-flash --mode skill --mode no-skill --all --dry-run
 ```
 
@@ -41,6 +58,13 @@ Each prompt asks the agent to:
 
 No-Skill A/B runs use the same natural prompt as Skill-visible runs. Use
 `--mode no-skill --scenario <name>` for a single no-skill run.
+
+The default enabled scenario set is intentionally trimmed for signal and
+runtime. It keeps two small representatives, `crash-sparse-cache` and
+`hang-tokenizer`, plus two complex black-box scenarios,
+`memory-corruption-binary-bridge` and `wrong-result-risk-buckets`. Other
+scenario packages remain in the tree with a `.disabled` marker and can still be
+run by removing that marker.
 
 Final correctness remains a manual judgment. `summary.json` records objective
 runtime data such as exit code, timeout, token/cost fields when exported by
@@ -67,10 +91,9 @@ To compare multiple completed suite directories:
 python3 eval/compare_runs.py eval/runs/<baseline-suite> eval/runs/<candidate-suite> -o eval/runs/compare-report.md
 ```
 
-Optional oracle hints can be added under `eval/oracles/<scenario>.json`. These
-files pre-fill the `manual-eval.json` checklist only; the runner still
-initializes each judgment as pending unless a non-pending `summary.json`
-`final_result` already exists.
+Oracle hints live in each scenario's `oracle.json`. These files pre-fill the
+`manual-eval.json` checklist only; the runner still initializes each judgment
+as pending unless a non-pending `summary.json` `final_result` already exists.
 
 For a quick smoke test of the runner without calling OpenCode:
 
