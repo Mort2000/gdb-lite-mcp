@@ -1,6 +1,7 @@
 # GDB Python
 
 Use short GDB Python blocks when native commands become repetitive or hard to parse. Print stable labels.
+Inline `python` blocks sent through `gdb_exec` must end with a standalone `end`.
 
 Evaluate several expressions:
 
@@ -32,8 +33,11 @@ end
 
 Define a temporary custom command for repeated snapshots:
 
-```gdb
-python
+First write a temporary Python file. A sourced `.py` file is pure Python and does not include `python` or `end`:
+
+```python
+import gdb
+
 class LiteSnapshot(gdb.Command):
     def __init__(self):
         super(LiteSnapshot, self).__init__("lite_snapshot", gdb.COMMAND_USER)
@@ -46,6 +50,11 @@ class LiteSnapshot(gdb.Command):
         print("=== end_snapshot ===")
 
 LiteSnapshot()
-end
+```
+
+Then load and run it through `gdb_exec`:
+
+```gdb
+source /tmp/lite_snapshot.py
 lite_snapshot
 ```

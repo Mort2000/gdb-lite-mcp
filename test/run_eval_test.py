@@ -94,7 +94,11 @@ class RunEvalTest(unittest.TestCase):
             summary = json.loads((round_dir / "summary.json").read_text(encoding="utf-8"))
             prompt = (round_dir / "prompt.md").read_text(encoding="utf-8")
             self.assertIsNone(summary["export_error"])
-            self.assertTrue(prompt.startswith("/gdb-debugging "))
+            self.assertFalse(prompt.startswith("/gdb-debugging "))
+            self.assertIn("--file", summary["run"]["command"])
+            prompt_file_index = summary["run"]["command"].index("--file") + 1
+            self.assertEqual(Path(summary["run"]["command"][prompt_file_index]), round_dir / "prompt.md")
+            self.assertEqual(summary["run"]["command"][-1], "/gdb-debugging Follow the instructions in the attached prompt file.")
             self.assertEqual(summary["session_id"], "ses_eval_test")
             self.assertEqual(summary["final_answer"], "Final answer text\n")
             self.assertEqual(summary["provider_id"], "fake-provider")
@@ -179,12 +183,19 @@ class RunEvalTest(unittest.TestCase):
                 os.chdir(old_cwd)
         self.assertTrue(Path(resolved).is_absolute())
 
-    def test_prompt_prefix_only_for_skill_mode(self) -> None:
-        base_prompt = "Debug the target.\n"
-        self.assertEqual(run_eval.prompt_for_mode("skill", base_prompt), "/gdb-debugging Debug the target.\n")
-        self.assertEqual(run_eval.prompt_for_mode("ablation", base_prompt), "/gdb-debugging Debug the target.\n")
-        self.assertEqual(run_eval.prompt_for_mode("skill", "/gdb-debugging Debug the target.\n"), "/gdb-debugging Debug the target.\n")
-        self.assertEqual(run_eval.prompt_for_mode("no-skill", base_prompt), base_prompt)
+    def test_run_message_triggers_skill_only_for_skill_modes(self) -> None:
+        self.assertEqual(
+            run_eval.run_message_for_mode("skill"),
+            "/gdb-debugging Follow the instructions in the attached prompt file.",
+        )
+        self.assertEqual(
+            run_eval.run_message_for_mode("ablation"),
+            "/gdb-debugging Follow the instructions in the attached prompt file.",
+        )
+        self.assertEqual(
+            run_eval.run_message_for_mode("no-skill"),
+            "Follow the instructions in the attached prompt file.",
+        )
 
     def test_no_skill_workspace_does_not_copy_project_skill(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

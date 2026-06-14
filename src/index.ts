@@ -142,7 +142,7 @@ server.registerTool(
   {
     title: "Execute gdb command",
     description:
-      "Send a gdb command and return all output since the previous gdb_exec or gdb_interrupt call. Empty command only polls output. If session_id is empty or unknown, returns the current gdb session list instead of executing a command.",
+      "Send a gdb command and return all output since the previous gdb_exec or gdb_interrupt call. Join multiple commands with \\n. Empty command only polls output. If session_id is empty or unknown, returns the current gdb session list instead of executing a command.",
     inputSchema: {
       session_id: z.string().default("").describe("GDB session id. Leave empty to list current sessions."),
       timeout: z.number().min(0).default(5.0),

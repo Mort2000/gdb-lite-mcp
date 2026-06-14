@@ -13,8 +13,9 @@ Use GDB as the debugging engine. Keep the MCP API thin: spawn a session, send na
 2. Spawn GDB. GDB Lite applies low-noise startup defaults automatically; use `gdb_args` only for target-specific setup.
 3. Prefer one discriminating probe over many tiny probes.
 4. For repeated observations, use GDB-native automation such as breakpoint command lists, conditional breakpoints, watchpoints, or short GDB Python blocks.
-5. Keep a compact hypothesis/evidence table mentally or in notes. Stop probing when the evidence identifies the earliest wrong state transition, or when a complete trace proves the expected value or fixture is inconsistent with runtime inputs.
-6. Close the GDB session before finishing.
+5. When a temporary Python script would compute expected values, replay reference logic, or compare structured runtime state, consider sourcing it as GDB Python so the calculation and inferior inspection happen in one debugger pass.
+6. Keep a compact hypothesis/evidence table mentally or in notes. Stop probing when the evidence identifies the earliest wrong state transition, or when a complete trace proves the expected value or fixture is inconsistent with runtime inputs.
+7. Close the GDB session before finishing.
 
 ## Start Modes
 

@@ -1,0 +1,16 @@
+{
+  "scenario": "wrong-result-risk-buckets",
+  "must_mention": [
+    "pos-apac-equity-073",
+    "uint32_t",
+    "overflow",
+    "1394150",
+    "7500",
+    "3100",
+    "bucket 0",
+    "bucket 3",
+    "risk_bucket_for"
+  ],
+  "must_not_claim": ["expected bucket is wrong", "digest algorithm is wrong"],
+  "root_cause": "The black-box risk_bucket_for path multiplies net exposure by volatility_bp in 32-bit unsigned arithmetic; the generated row pos-apac-equity-073 wraps before division, producing bucket 0 instead of the reference bucket 3."
+}

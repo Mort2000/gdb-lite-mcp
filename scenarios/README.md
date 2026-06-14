@@ -21,12 +21,13 @@ Programs are written to `scenarios/bin/`.
 | recursion-memo-cost | `scenarios/bin/memo-cost` | Recursive optimizer returns a cost lower than the expected cost. |
 | hang-settlement-cursor | `scenarios/bin/settlement-cursor` | Hangs while replaying a settlement journal. |
 | core-invoice-export | `scenarios/bin/invoice-export` with `scenarios/bin/invoice-export.core` | Core file shows a crash during invoice export. |
+| wrong-result-risk-buckets | `scenarios/bin/risk-buckets` | Returns failure after one generated risk position hashes with the wrong bucket. |
 
 ## Evaluation Rule
 
 Ask the agent to localize the root cause without editing source. A successful run should report:
 
-1. Exact root cause and source location.
+1. Exact root cause and source location, or responsible function when source is unavailable.
 2. Expected invariant versus actual runtime state.
 3. Decisive GDB evidence from the MCP session.
 

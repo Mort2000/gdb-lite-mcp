@@ -31,6 +31,7 @@ PROMPT_DIR = REPO_ROOT / "eval" / "prompts"
 ORACLE_DIR = REPO_ROOT / "eval" / "oracles"
 DEFAULT_OUT_DIR = REPO_ROOT / "eval" / "runs"
 SKILL_PROMPT_PREFIX = "/gdb-debugging "
+ATTACHED_PROMPT_MESSAGE = "Follow the instructions in the attached prompt file."
 FINAL_RESULT_TEMPLATE = {
     "status": "pending",
     "passed": None,
@@ -191,10 +192,10 @@ def load_oracle(scenario: str) -> dict[str, Any] | None:
     return data
 
 
-def prompt_for_mode(mode: str, prompt_text: str) -> str:
-    if mode in {"skill", "ablation"} and not prompt_text.startswith(SKILL_PROMPT_PREFIX):
-        return f"{SKILL_PROMPT_PREFIX}{prompt_text}"
-    return prompt_text
+def run_message_for_mode(mode: str) -> str:
+    if mode in {"skill", "ablation"}:
+        return f"{SKILL_PROMPT_PREFIX}{ATTACHED_PROMPT_MESSAGE}"
+    return ATTACHED_PROMPT_MESSAGE
 
 
 def build_workspace(round_dir: Path, mode: str) -> Path:
@@ -243,17 +244,27 @@ def kill_process_group(proc: subprocess.Popen[str]) -> None:
 def run_opencode(
     opencode_bin: str,
     workspace: Path,
-    prompt_text: str,
+    prompt_file: Path,
+    message_text: str,
     model: str | None,
     variant: str | None,
     timeout_sec: int,
 ) -> dict[str, Any]:
-    cmd = [opencode_bin, "run", "--format", "json", "--dir", str(workspace)]
+    cmd = [
+        opencode_bin,
+        "run",
+        "--format",
+        "json",
+        "--dir",
+        str(workspace),
+        "--file",
+        str(prompt_file),
+    ]
     if model:
         cmd.extend(["--model", model])
     if variant:
         cmd.extend(["--variant", variant])
-    cmd.extend(["--dangerously-skip-permissions", prompt_text])
+    cmd.extend(["--dangerously-skip-permissions", message_text])
     started = utc_now()
     started_monotonic = time.monotonic()
     proc = subprocess.Popen(
@@ -289,6 +300,8 @@ def redact_prompt_arg(cmd: list[str]) -> list[str]:
     if not cmd:
         return []
     redacted = list(cmd)
+    if "--file" in redacted:
+        return redacted
     if len(redacted) > 1:
         redacted[-1] = "<prompt text>"
     return redacted
@@ -997,8 +1010,9 @@ def run_round(
     round_dir = suite_dir / mode / scenario / f"round-{round_number:03d}"
     round_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = PROMPT_DIR / f"{scenario}.md"
-    prompt_text = prompt_for_mode(mode, read_text(prompt_path))
-    write_text(round_dir / "prompt.md", prompt_text)
+    prompt_text = read_text(prompt_path)
+    round_prompt_path = round_dir / "prompt.md"
+    write_text(round_prompt_path, prompt_text)
     workspace = build_workspace(round_dir, mode)
     workspace_info = {
         "workspace": str(workspace),
@@ -1013,7 +1027,8 @@ def run_round(
     run_result = run_opencode(
         opencode_bin=opencode_bin,
         workspace=workspace,
-        prompt_text=prompt_text,
+        prompt_file=round_prompt_path,
+        message_text=run_message_for_mode(mode),
         model=args.model,
         variant=args.variant,
         timeout_sec=args.timeout_sec,
