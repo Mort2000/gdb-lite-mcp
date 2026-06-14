@@ -35,14 +35,14 @@ development assets; clone this repository if you want to run them locally.
 
 ## MCP Configuration
 
-Point your MCP client at the built server entry point:
+Point your MCP client at the published package via `npx`:
 
 ```json
 {
   "mcpServers": {
     "gdb-lite": {
-      "command": "node",
-      "args": ["/absolute/path/to/gdb_lite_mcp/dist/index.js"]
+      "command": "npx",
+      "args": ["-y", "gdb-lite-mcp"]
     }
   }
 }
