@@ -3,6 +3,23 @@
   "version": "0.2.1",
   "description": "A small TypeScript MCP server for driving gdb sessions.",
   "license": "MIT",
+  "author": "Mort2000",
+  "homepage": "https://github.com/Mort2000/gdb-lite-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mort2000/gdb-lite-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Mort2000/gdb-lite-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "gdb",
+    "debugger",
+    "cli"
+  ],
   "type": "module",
   "bin": {
     "gdb-lite-mcp": "./dist/index.js"
