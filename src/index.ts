@@ -14,7 +14,7 @@ const debugGuideUri = "gdb-lite://debug-guide";
 
 const server = new McpServer({
   name: "gdb-lite-mcp",
-  version: "0.1.0",
+  version: "0.2.1",
 });
 
 const maxOutputBytesSchema = z

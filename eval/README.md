@@ -59,12 +59,9 @@ Each prompt asks the agent to:
 No-Skill A/B runs use the same natural prompt as Skill-visible runs. Use
 `--mode no-skill --scenario <name>` for a single no-skill run.
 
-The default enabled scenario set is intentionally trimmed for signal and
-runtime. It keeps two small representatives, `crash-sparse-cache` and
+The scenario set keeps two small representatives, `crash-sparse-cache` and
 `hang-tokenizer`, plus two complex black-box scenarios,
-`memory-corruption-binary-bridge` and `wrong-result-risk-buckets`. Other
-scenario packages remain in the tree with a `.disabled` marker and can still be
-run by removing that marker.
+`memory-corruption-binary-bridge` and `wrong-result-risk-buckets`.
 
 Final correctness remains a manual judgment. `summary.json` records objective
 runtime data such as exit code, timeout, token/cost fields when exported by
@@ -98,7 +95,8 @@ as pending unless a non-pending `summary.json` `final_result` already exists.
 For a quick smoke test of the runner without calling OpenCode:
 
 ```bash
-python3 eval/run_eval.py --mode skill --scenario wrong-result-ledger --dry-run
+python3 eval/run_eval.py --mode skill --scenario hang-tokenizer --dry-run
 ```
 
-Record real runs in `opencode-results.md`.
+Run outputs are written under `eval/runs/`; use `opencode-results.md` only for
+local notes when needed.

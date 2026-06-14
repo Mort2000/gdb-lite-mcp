@@ -34,7 +34,7 @@ Use GDB as the debugging engine. Keep the MCP API thin: spawn a session, send na
 - For hang or infinite-loop cases, do not use auto-continuing breakpoint command lists; use plain breakpoints, bounded manual `continue`/`next`, or stop-on-condition probes instead.
 - Treat `timed_out && needs_interrupt` as "do not stack more commands." Use `gdb_interrupt`, then collect `bt`, `thread apply all bt`, and locals.
 - Treat `at_prompt=false` and `command_pending=true` as a session-control issue before it is a debugging hypothesis.
-- For MCP `gdb_spawn`, use a stable `work_dir` such as the repository root and a `prog_path` relative to that directory, or pass an absolute `prog_path`. Avoid mixing a binary directory `work_dir` with paths already relative to another directory.
+- For MCP `gdb_spawn`, use a stable `work_dir` such as the target project root and a `prog_path` relative to that directory, or pass an absolute `prog_path`. Avoid mixing a binary directory `work_dir` with paths already relative to another directory.
 
 ## Scenario Hints
 

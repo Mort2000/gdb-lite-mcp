@@ -1,1 +1,0 @@
-Disabled for the trimmed default suite: memory corruption is covered by the retained black-box binary-bridge scenario.

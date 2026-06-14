@@ -26,7 +26,7 @@ from scenario_discovery import Scenario, require_scenarios, scenario_names
 from eval_report_lib import ensure_manual_eval
 
 
-RUNNER_VERSION = "0.1.0"
+RUNNER_VERSION = "0.2.1"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_DIR = REPO_ROOT / "eval" / "runs"
 SKILL_PROMPT_PREFIX = "/gdb-debugging "

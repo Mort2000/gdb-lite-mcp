@@ -141,11 +141,11 @@ included in the npm package.
 
 ```bash
 npm run build
-python3 eval/run_eval.py --scenario wrong-result-ledger
+python3 eval/run_eval.py --scenario hang-tokenizer
 ```
 
-Run records should be kept in `eval/opencode-results.md`. That file is ignored
-because it is a local intermediate result artifact.
+Run outputs are written under `eval/runs/`, which is ignored because it is a
+local evaluation result artifact.
 
 ## Development
 
